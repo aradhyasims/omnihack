@@ -1,0 +1,34 @@
+# Render Blueprint for OmniHack (web service; database and file storage on Supabase).
+# Secrets (DATABASE_URL, APP_SECRET, ENCRYPTION_KEY, AWS_* for Supabase Storage, SMTP_*) are set
+# in the Render dashboard, never in this file. See docs/DEPLOYMENT.md → "Render + Supabase".
+services:
+  - type: web
+    name: omnihack
+    runtime: docker
+    plan: free
+    region: singapore
+    branch: main
+    dockerfilePath: ./Dockerfile
+    # Free plan has no pre-deploy step: apply pending migrations, then start the server.
+    # The background worker runs inside the web process (src/instrumentation.ts).
+    dockerCommand: sh -c "node node_modules/prisma/build/index.js migrate deploy && node server.js"
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOSTNAME
+        value: 0.0.0.0
+      - key: APP_URL
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: APP_SECRET
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: REQUIRE_ADMIN_MFA
+        value: "true"
+      - key: EMAIL_PROVIDER
+        value: console
+      - key: STORAGE_DRIVER
+        value: local

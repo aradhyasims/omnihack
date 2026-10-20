@@ -55,7 +55,48 @@ Steps:
 
 **Before production:** set `STORAGE_DRIVER=s3` (required with multiple web tasks, since local disk is not shared), `EMAIL_PROVIDER=smtp` with SES SMTP credentials, and `MALWARE_SCANNER=clamav` with a clamd sidecar; enable `REQUIRE_ADMIN_MFA`; and complete a security review. Optional `RETENTION_*_DAYS` variables tune the daily purge.
 
-## 6. Rollback
+## 6. Low-cost hosting: Render + Supabase (current live setup)
+
+| Piece        | Where                                                                                                                                                                          |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Web app      | Render web service `omnihack` (Docker, Singapore, free plan). Defined in `render.yaml`.                                                                                        |
+| Worker       | Inside the web process (`src/instrumentation.ts`). On the free plan it pauses while the service sleeps.                                                                        |
+| Database     | Supabase project `omnihack` (`ap-southeast-1`). Uses the `omnihack` schema, owned by the dedicated `omnihack_app` role. The schema is not exposed through Supabase's REST API. |
+| File storage | Supabase Storage private bucket `omnihack-files`, accessed through its S3-compatible API.                                                                                      |
+
+**Connection string.** Use the session pooler, which is IPv4 and supports prepared statements:
+
+```
+postgresql://omnihack_app.<project-ref>:<password>@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres?schema=omnihack&sslmode=require&connection_limit=5
+```
+
+**Migrations** run on every start: `prisma migrate deploy && node server.js`. Migrations are expand-only, so this is safe.
+
+**File storage.** Create S3 access keys in Supabase Dashboard → Storage → S3 Connection, then set these on Render:
+
+```
+STORAGE_DRIVER=s3
+S3_BUCKET=omnihack-files
+S3_REGION=ap-southeast-1
+S3_ENDPOINT=https://<project-ref>.storage.supabase.co/storage/v1/s3
+S3_FORCE_PATH_STYLE=true
+S3_SSE=none
+S3_CONDITIONAL_PUT=false
+AWS_ACCESS_KEY_ID=…
+AWS_SECRET_ACCESS_KEY=…
+```
+
+Until then, uploads use local disk. That disk is wiped whenever Render restarts or redeploys the service.
+
+**Email.** Set `EMAIL_PROVIDER=smtp` and the `SMTP_*` settings (for example Brevo, Resend, SendGrid, or Gmail with an app password). Otherwise verification and notification emails are only written to the Render logs.
+
+**Free-plan limits:**
+
+- The service sleeps after 15 minutes without traffic, so the first request then takes about 30–60 seconds.
+- Supabase free projects pause after a week of inactivity.
+- Use paid plans for real events.
+
+## 7. Rollback
 
 - **Application:** ECS circuit breaker rolls back failed deployments automatically. For a manual rollback, run `infra/scripts/deploy-service.sh <env> <previous-image>`.
 - **Database:** migrations are expand-only by policy, so the previous image runs against the new schema. For a destructive mistake, restore from point-in-time recovery (OPERATIONS).
