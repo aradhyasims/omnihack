@@ -8,7 +8,7 @@ TASK_DEF=$(aws ecs describe-task-definition --task-definition "omnihack-${ENV}-w
 ARN=$(aws ecs register-task-definition --cli-input-json "$TASK_DEF" --query 'taskDefinition.taskDefinitionArn' --output text)
 NET=$(aws ecs describe-services --cluster "$CLUSTER" --services web --query 'services[0].networkConfiguration' --output json)
 TASK=$(aws ecs run-task --cluster "$CLUSTER" --launch-type FARGATE --task-definition "$ARN" --network-configuration "$NET" \
-  --overrides '{"containerOverrides":[{"name":"web","command":["node","node_modules/prisma/build/index.js","migrate","deploy"]}]}' \
+  --overrides '{"containerOverrides":[{"name":"web","command":["node","migrator/node_modules/prisma/build/index.js","migrate","deploy","--schema","./prisma/schema.prisma"]}]}' \
   --query 'tasks[0].taskArn' --output text)
 aws ecs wait tasks-stopped --cluster "$CLUSTER" --tasks "$TASK"
 CODE=$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK" --query 'tasks[0].containers[0].exitCode' --output text)

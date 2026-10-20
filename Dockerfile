@@ -2,7 +2,7 @@
 # Multi-stage build producing one image used for both the web app and the background worker.
 #   web:    docker run ... omnihack                      (default CMD; MIGRATE_ON_START=true to migrate first)
 #   worker: docker run ... omnihack node dist/worker.js
-#   migrations (one-off task before deploy): docker run ... omnihack npx prisma migrate deploy
+#   migrations (one-off task before deploy): docker run ... omnihack node migrator/node_modules/prisma/build/index.js migrate deploy
 
 FROM node:22-bookworm-slim AS base
 RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
@@ -18,6 +18,13 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npx prisma generate && npx next build && npm run build:worker
 
+# Self-contained Prisma CLI (with all its dependencies) for `migrate deploy` inside the runtime image,
+# pinned to the project's Prisma version.
+FROM base AS migrator
+WORKDIR /app/migrator
+COPY --from=deps /app/node_modules/prisma/package.json /tmp/prisma-package.json
+RUN npm init -y >/dev/null && npm install --omit=dev --no-audit --no-fund "prisma@$(node -p "require('/tmp/prisma-package.json').version")"
+
 FROM base AS runner
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0
 RUN groupadd --system --gid 1001 omnihack && useradd --system --uid 1001 --gid omnihack omnihack
@@ -28,7 +35,7 @@ COPY --from=build --chown=omnihack:omnihack /app/dist ./dist
 COPY --from=build --chown=omnihack:omnihack /app/prisma ./prisma
 COPY --from=build --chown=omnihack:omnihack /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build --chown=omnihack:omnihack /app/node_modules/@prisma ./node_modules/@prisma
-COPY --from=build --chown=omnihack:omnihack /app/node_modules/prisma ./node_modules/prisma
+COPY --from=migrator --chown=omnihack:omnihack /app/migrator ./migrator
 COPY --from=build --chown=omnihack:omnihack /app/scripts/start.sh ./start.sh
 USER omnihack
 EXPOSE 3000

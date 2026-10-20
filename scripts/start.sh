@@ -4,6 +4,6 @@
 set -e
 if [ "$MIGRATE_ON_START" = "true" ]; then
   echo "[start] applying database migrations"
-  node node_modules/prisma/build/index.js migrate deploy
+  node migrator/node_modules/prisma/build/index.js migrate deploy --schema ./prisma/schema.prisma
 fi
 exec node server.js
