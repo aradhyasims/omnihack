@@ -75,7 +75,15 @@ describe("sessions & auth", () => {
     await expect(registerUser({ name: "Dup", email: "RESET@test.example", password: "First-Pass-123", acceptTerms: true })).rejects.toMatchObject({
       code: "CONFLICT",
     });
-    await expect(registerUser({ name: "Weak", email: "weak@test.example", password: "password1234", acceptTerms: true })).rejects.toThrow();
+    // Invalid input must surface as field errors (shown under the field), never as a server error.
+    await expect(registerUser({ name: "Weak", email: "weak@test.example", password: "password1234", acceptTerms: true })).rejects.toMatchObject({
+      code: "VALIDATION",
+      fieldErrors: { password: "This password is too common." },
+    });
+    await expect(registerUser({ name: "Short", email: "short@test.example", password: "Abc-12345", acceptTerms: true })).rejects.toMatchObject({
+      code: "VALIDATION",
+      fieldErrors: { password: "Use at least 10 characters." },
+    });
     await requestPasswordReset("nobody@test.example"); // silently succeeds
     await requestPasswordReset("reset@test.example");
     const mail = await db.emailOutbox.findFirstOrThrow({ where: { toEmail: "reset@test.example", subject: { startsWith: "Reset" } } });

@@ -5,6 +5,7 @@ import { decrypt, encrypt, generateTotpSecret, hashPassword, randomToken, sha256
 import { AppError, conflict, validation } from "../errors";
 import { queueEmail } from "../notifications/email";
 import { audit } from "../audit";
+import { parse } from "../validation";
 import { deleteUserSessions } from "./session";
 
 const COMMON_PASSWORDS = new Set(["password123", "password1234", "123456789012", "qwertyuiop12", "omnihack1234", "letmein12345", "iloveyou1234"]);
@@ -27,7 +28,7 @@ export const registerSchema = z.object({
 let dummyHash: Promise<string> | null = null;
 
 export async function registerUser(input: { name: string; email: string; password: string; acceptTerms: boolean }) {
-  const data = registerSchema.parse(input);
+  const data = parse(registerSchema, input);
   const existing = await db.user.findUnique({ where: { email: data.email } });
   if (existing) throw conflict("An account with this email already exists. Try signing in instead.");
   const user = await db.user.create({
