@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Logo, LogoStacked } from "@/components/brand/logo";
+import { Logo } from "@/components/brand/logo";
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -22,7 +22,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         <div className="absolute -right-32 -top-32 h-[520px] w-[520px] rounded-full bg-brand-600/30 blur-[120px]" />
         <div className="absolute -bottom-40 left-10 h-[420px] w-[420px] rounded-full bg-accent-500/20 blur-[120px]" />
         <div className="relative flex h-full flex-col justify-between p-14 text-white">
-          <LogoStacked inverted className="h-28" />
+          <Logo inverted href={null} className="h-12 self-start" />
           <div>
             <p className="font-display text-4xl font-extrabold leading-tight">
               Register. Build. Get judged fairly.

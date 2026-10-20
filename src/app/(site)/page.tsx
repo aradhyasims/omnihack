@@ -3,6 +3,7 @@ import { ButtonLink } from "@/components/ui/button";
 import { Badge, DemoBadge, Icon } from "@/components/ui/primitives";
 import { CompetitionCard } from "@/components/competitions/competition-card";
 import { FaqList } from "@/components/site/faq-list";
+import { MentorRegisterForm } from "@/components/site/mentor-register-form";
 import { PLATFORM_FAQ } from "@/content/faq";
 import { featuredCompetitions, platformStats, publicCategories, upcomingDeadlines } from "@/server/modules/competitions/queries";
 import { recentWinners } from "@/server/modules/results/service";
@@ -11,6 +12,7 @@ import { cached } from "@/server/cache";
 import { listPublicOpenings } from "@/server/modules/talent/service";
 import { OpeningCard } from "@/components/talent/opening-card";
 import { TYPE_LABEL } from "@/lib/labels";
+import { mentorDomainOptions } from "@/server/modules/admin/service";
 
 export const dynamic = "force-dynamic";
 
@@ -27,65 +29,23 @@ function SectionHeading({ eyebrow, title, description, action }: { eyebrow: stri
   );
 }
 
-function PipelineVisual() {
-  const steps = [
-    { icon: "users", title: "Register & form teams", meta: "Eligibility checked automatically" },
-    { icon: "idea", title: "Submit ideas or projects", meta: "Versioned, private by default" },
-    { icon: "gavel", title: "Judge on weighted rubrics", meta: "Multi-round shortlisting" },
-    { icon: "certificate", title: "Publish & certify", meta: "QR-verifiable certificates" },
-  ];
-  return (
-    <div className="relative">
-      <div className="absolute -inset-6 rounded-[2rem] bg-gradient-to-br from-brand-500/30 via-accent-400/10 to-transparent blur-2xl" aria-hidden />
-      <div className="relative rounded-3xl border border-white/10 bg-white/[0.04] p-5 shadow-2xl backdrop-blur-sm">
-        <div className="mb-4 flex items-center justify-between">
-          <span className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-300">Competition pipeline</span>
-          <span className="rounded-full bg-emerald-400/15 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-300">Configurable stages</span>
-        </div>
-        <ol className="space-y-3">
-          {steps.map((s, i) => (
-            <li key={s.title} className="flex items-center gap-4 rounded-2xl border border-white/10 bg-ink-900/70 p-4">
-              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-lg shadow-brand-900/40">
-                <Icon name={s.icon} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-white">{s.title}</p>
-                <p className="text-xs text-ink-400">{s.meta}</p>
-              </div>
-              <span className="font-mono text-xs text-ink-500">0{i + 1}</span>
-            </li>
-          ))}
-        </ol>
-        <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-          {[
-            ["Ideathon", "idea"],
-            ["Hackathon", "code"],
-            ["Hybrid", "layers"],
-          ].map(([label, icon]) => (
-            <div key={label} className="rounded-xl border border-white/10 bg-white/[0.03] px-2 py-3">
-              <Icon name={icon} className="mx-auto h-4 w-4 text-accent-300" />
-              <p className="mt-1 text-[11px] font-semibold text-ink-200">{label}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default async function HomePage() {
   // Public, non-personal sections: cached for 30 s per instance to keep homepage load off the database.
-  const [ideathons, hackathons, deadlines, categories, stats, winners, roles] = await cached("home:sections", 30_000, () =>
-    Promise.all([
-      featuredCompetitions("IDEATHON"),
-      featuredCompetitions("HACKATHON"),
-      upcomingDeadlines(5),
-      publicCategories(),
-      platformStats(),
-      recentWinners(3),
-      listPublicOpenings({ page: 1 }),
-    ]),
-  );
+  const [[ideathons, hackathons, deadlines, categories, stats, winners, roles], mentorDomains] = await Promise.all([
+    cached("home:sections", 30_000, () =>
+      Promise.all([
+        featuredCompetitions("IDEATHON"),
+        featuredCompetitions("HACKATHON"),
+        upcomingDeadlines(5),
+        publicCategories(),
+        platformStats(),
+        recentWinners(3),
+        listPublicOpenings({ page: 1 }),
+      ]),
+    ),
+    // Not cached, so a domain a mentor just added under "Other" is offered to the next mentor right away.
+    mentorDomainOptions(),
+  ]);
   const hasRealStats = stats.competitions > 0;
 
   return (
@@ -113,6 +73,12 @@ export default async function HomePage() {
               <ButtonLink href="/host" size="lg" variant="light">
                 Host a competition
               </ButtonLink>
+              <Link
+                href="#become-a-mentor"
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-lg border border-white/25 px-6 text-[15px] font-semibold text-white transition hover:bg-white/10 lg:hidden"
+              >
+                <Icon name="mentor" className="h-4 w-4" /> Become a mentor
+              </Link>
             </div>
             <dl className="mt-12 grid max-w-lg grid-cols-3 gap-6 border-t border-white/10 pt-8">
               {hasRealStats ? (
@@ -146,7 +112,7 @@ export default async function HomePage() {
             </dl>
           </div>
           <div className="animate-fade-up [animation-delay:120ms]">
-            <PipelineVisual />
+            <MentorRegisterForm domains={mentorDomains.options} />
           </div>
         </div>
       </section>

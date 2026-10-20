@@ -1273,6 +1273,33 @@ model ContactInquiry {
   createdAt    DateTime     @default(now())
 }
 
+// External mentors volunteering from the public homepage; reviewed by platform admins.
+model MentorApplication {
+  id            String   @id @default(cuid())
+  name          String
+  email         String
+  mobile        String? // private; required by the form (older rows may not have it)
+  designation   String
+  qualification String
+  city          String
+  country       String
+  linkedinUrl   String
+  photoKey      String? // public/mentors/… image served via /media
+  domains       String[] @default([]) // built-in values (src/content/mentor-domains.ts) or MentorDomain.value
+  status        String   @default("NEW") // NEW | APPROVED | DECLINED
+  createdAt     DateTime @default(now())
+
+  @@index([status, createdAt])
+  @@index([linkedinUrl])
+}
+
+// Domains mentors typed under "Other"; they join the picker and the Mentorship filters once in use.
+model MentorDomain {
+  value     String   @id // URL slug, e.g. "quantum-computing"
+  label     String
+  createdAt DateTime @default(now())
+}
+
 model AuditLog {
   id            String   @id @default(cuid())
   actorId       String?

@@ -35,6 +35,7 @@ export const NAV: NavGroup[] = [
   },
   { label: "FAQ", href: "/faq" },
   { label: "About", href: "/about" },
+  { label: "Mentorship", href: "/mentorship" },
 ];
 
 function Dropdown({ group, active }: { group: NavGroup; active: boolean }) {

@@ -30,16 +30,3 @@ export function Logo({ className, inverted = false, href = "/" }: { className?: 
     </Link>
   );
 }
-
-/** Stacked lockup (symbol above the wordmark) for large brand moments such as auth and error pages. */
-export function LogoStacked({ className, inverted = false }: { className?: string; inverted?: boolean }) {
-  return (
-    <Image
-      src={inverted ? "/brand/omnihack-logo-stacked-light.png" : "/brand/omnihack-logo-stacked.png"}
-      alt={brand.name}
-      width={640}
-      height={365}
-      className={cn("h-24 w-auto self-start object-contain", className)}
-    />
-  );
-}

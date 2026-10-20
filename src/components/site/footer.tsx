@@ -27,6 +27,7 @@ const columns = [
     title: "Company",
     links: [
       ["About", "/about"],
+      ["Mentorship", "/mentorship"],
       ["Contact", "/contact"],
       ["Privacy notice", brand.legal.privacyPath],
       ["Terms of use", brand.legal.termsPath],

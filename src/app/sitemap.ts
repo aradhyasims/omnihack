@@ -21,6 +21,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     "/verify",
     "/opportunities",
     "/hire",
+    "/mentorship",
   ];
   const [competitions, projects] = await Promise.all([
     db.competition.findMany({

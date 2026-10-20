@@ -32,6 +32,14 @@ export default async function AdminHome() {
             </Link>
           }
         />
+        <Stat
+          label="New mentor registrations"
+          value={
+            <Link href="/admin/mentors" className="hover:underline">
+              {o.mentorApplications}
+            </Link>
+          }
+        />
         <Stat label="Queued jobs" value={o.queuedJobs} />
         <Stat label="Failed jobs" value={o.failedJobs} tone={o.failedJobs ? "warning" : undefined} />
         <Stat

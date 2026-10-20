@@ -30,6 +30,9 @@ export async function featureAction(competitionId: string, featured: boolean): P
 export async function inquiryStatusAction(id: string, status: "NEW" | "IN_PROGRESS" | "CLOSED"): Promise<ActionState> {
   return runAction(async () => admin.setInquiryStatus(await getCurrentUser(), id, status));
 }
+export async function mentorApplicationStatusAction(id: string, status: "NEW" | "APPROVED" | "DECLINED"): Promise<ActionState> {
+  return runAction(async () => admin.setMentorApplicationStatus(await getCurrentUser(), id, status));
+}
 export async function retryEmailsAction(): Promise<ActionState> {
   return runAction(async () => `${await admin.retryFailedEmails(await getCurrentUser())} email(s) re-queued.`);
 }

@@ -2,24 +2,29 @@ import { z } from "zod";
 import { db } from "../../db";
 import { audit } from "../../audit";
 import { type Actor, requireCompetitionPermission, requirePlatformAdmin, requireSuperAdmin } from "../../authz";
-import { precondition, validation } from "../../errors";
+import { AppError, precondition, validation } from "../../errors";
 import { deleteUserSessions } from "../../auth/session";
 import { parse, reqText, optText } from "../../validation";
 import { rateLimit } from "../../rate-limit";
+import { storage } from "../../storage";
+import { validateUpload } from "../../storage/validate";
+import { randomToken } from "../../crypto";
+import { BUILTIN_MENTOR_DOMAINS, OTHER_DOMAIN, slugifyDomain, type DomainOption } from "@/content/mentor-domains";
 
 export async function adminOverview(actor: Actor | null) {
   requirePlatformAdmin(actor);
-  const [users, orgs, competitions, pending, inquiries, failedEmails, failedJobs, queuedJobs] = await Promise.all([
+  const [users, orgs, competitions, pending, inquiries, mentorApplications, failedEmails, failedJobs, queuedJobs] = await Promise.all([
     db.user.count(),
     db.organization.count(),
     db.competition.groupBy({ by: ["status"], _count: { _all: true } }),
     db.competition.count({ where: { status: "PENDING_APPROVAL" } }),
     db.contactInquiry.count({ where: { status: "NEW" } }),
+    db.mentorApplication.count({ where: { status: "NEW" } }),
     db.emailOutbox.count({ where: { status: "FAILED" } }),
     db.job.count({ where: { status: "FAILED" } }),
     db.job.count({ where: { status: "QUEUED" } }),
   ]);
-  return { users, orgs, competitions, pending, inquiries, failedEmails, failedJobs, queuedJobs };
+  return { users, orgs, competitions, pending, inquiries, mentorApplications, failedEmails, failedJobs, queuedJobs };
 }
 
 export async function listUsers(actor: Actor | null, q?: string, page = 1) {
@@ -147,6 +152,165 @@ export async function setInquiryStatus(actor: Actor | null, id: string, status: 
   if (!["NEW", "IN_PROGRESS", "CLOSED"].includes(status)) throw validation("Invalid status.");
   await db.contactInquiry.update({ where: { id }, data: { status } });
   await audit({ actorId: admin.id, action: "admin.inquiry_status", entityType: "ContactInquiry", entityId: id, meta: { status } });
+}
+
+// ── Mentor applications (public) ───────────────────────────────────────────────
+
+// Accept "linkedin.com/in/x" or "www.linkedin.com/in/x" without a scheme; store a canonical https URL.
+const linkedinUrl = z
+  .string({ required_error: "LinkedIn profile URL is required." })
+  .trim()
+  .min(1, "LinkedIn profile URL is required.")
+  .max(300, "LinkedIn profile URL is too long.")
+  .transform((v) => (/^https?:\/\//i.test(v) ? v : `https://${v}`))
+  .refine((v) => /^https?:\/\/([a-z]{2,3}\.)?linkedin\.com\/(in|pub)\/[^/?#\s]+\/?([?#].*)?$/i.test(v), "Enter your LinkedIn profile URL, e.g. https://www.linkedin.com/in/your-name")
+  .transform((v) => {
+    const u = new URL(v.replace(/^http:/i, "https:"));
+    return `https://www.linkedin.com${u.pathname.replace(/\/$/, "")}`;
+  });
+
+// Keep a leading "+" and digits only; 7–15 digits covers national and E.164 international numbers.
+const mobile = z
+  .string({ required_error: "Mobile number is required." })
+  .trim()
+  .min(1, "Mobile number is required.")
+  .max(25, "Mobile number is too long.")
+  .transform((v) => v.replace(/[\s().-]/g, ""))
+  .refine((v) => /^\+?\d{7,15}$/.test(v), "Enter a valid mobile number, e.g. +91 98765 43210");
+
+const mentorApplicationSchema = z.object({
+  name: reqText("Name", 2, 100),
+  email: z.string().trim().toLowerCase().email("Enter a valid email."),
+  mobile,
+  designation: reqText("Designation", 2, 120),
+  qualification: reqText("Qualification", 2, 160),
+  city: reqText("City", 2, 80),
+  country: reqText("Country", 2, 80),
+  linkedinUrl,
+  domains: z
+    .preprocess(
+      (v) => (v === undefined || v === "" ? [] : Array.isArray(v) ? v : [v]),
+      z.array(z.string().max(60).regex(/^[a-z0-9-]+$/, "Choose from the listed domains.")),
+    )
+    .transform((v) => [...new Set(v)])
+    .refine((v) => v.length >= 1, "Choose at least one domain.")
+    .refine((v) => v.length <= 3, "Choose up to 3 domains."),
+  otherDomain: optText(40),
+  website: z.string().max(0, "Spam detected.").optional(), // honeypot
+});
+
+const DOMAIN_LABEL_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N} &+./'-]*$/u;
+
+/**
+ * Map the picked values to stored domain values. "other" is replaced by the typed domain, which reuses a
+ * built-in or existing custom domain when it matches one (case- and punctuation-insensitive) and is created otherwise.
+ */
+async function resolveMentorDomains(selected: string[], otherDomain: string | null) {
+  const custom = await db.mentorDomain.findMany();
+  const known: DomainOption[] = [...BUILTIN_MENTOR_DOMAINS, ...custom];
+  const knownValues = new Set(known.map((d) => d.value));
+  const out = selected.filter((v) => v !== OTHER_DOMAIN);
+  if (out.some((v) => !knownValues.has(v))) throw validation("Choose from the listed domains.", { domains: "Choose from the listed domains." });
+  if (!selected.includes(OTHER_DOMAIN)) return out;
+
+  const label = (otherDomain ?? "").replace(/\s+/g, " ").trim();
+  if (label.length < 2) throw validation("Please correct the highlighted fields.", { otherDomain: "Enter your domain." });
+  if (!DOMAIN_LABEL_PATTERN.test(label))
+    throw validation("Please correct the highlighted fields.", { otherDomain: "Use letters, numbers, spaces and & + . / ' - only." });
+  const slug = slugifyDomain(label);
+  const match = known.find((d) => d.value === slug || slugifyDomain(d.label) === slug || d.label.toLowerCase() === label.toLowerCase());
+  let value = match?.value;
+  if (!value) {
+    // Non-Latin labels slugify to nothing; give them a stable random slug instead.
+    value = slug || `domain-${randomToken(6).toLowerCase().replace(/[^a-z0-9]/g, "x")}`;
+    await db.mentorDomain.upsert({ where: { value }, create: { value, label: label[0]!.toUpperCase() + label.slice(1) }, update: {} });
+  }
+  return [...new Set([...out, value])];
+}
+
+/** Domains offered in the picker and as Mentorship filters: built-ins, then custom domains in public use, then "Other". */
+export async function mentorDomainOptions() {
+  const [custom, listed] = await Promise.all([
+    db.mentorDomain.findMany({ orderBy: { label: "asc" } }),
+    db.mentorApplication.findMany({ where: { status: { in: ["NEW", "APPROVED"] } }, select: { domains: true } }),
+  ]);
+  const inUse = new Set(listed.flatMap((m) => m.domains));
+  const options: DomainOption[] = [...BUILTIN_MENTOR_DOMAINS, ...custom.filter((c) => inUse.has(c.value)).map(({ value, label }) => ({ value, label }))];
+  const labels: Record<string, string> = Object.fromEntries([...BUILTIN_MENTOR_DOMAINS, ...custom].map((d) => [d.value, d.label]));
+  return { options, labels };
+}
+
+const MENTOR_PHOTO_MAX_BYTES = 3 * 1024 * 1024;
+
+export async function submitMentorApplication(input: unknown, photo: File | null, ip: string | null) {
+  rateLimit(`mentor-application:${ip ?? "unknown"}`, 5, 60 * 60_000);
+  // Report a missing "Other" domain together with any other field errors, not on a second submit.
+  const raw = (input ?? {}) as Record<string, unknown>;
+  const otherMissing = [raw.domains].flat().includes(OTHER_DOMAIN) && !String(raw.otherDomain ?? "").trim();
+  let d: z.output<typeof mentorApplicationSchema>;
+  try {
+    d = parse(mentorApplicationSchema, input);
+  } catch (e) {
+    if (otherMissing && e instanceof AppError && e.fieldErrors) e.fieldErrors.otherDomain ??= "Enter your domain.";
+    throw e;
+  }
+  const { website: _honeypot, otherDomain, ...fields } = d;
+  let photoBuf: Buffer | null = null;
+  let photoCheck: { mime: string; ext: string } | null = null;
+  if (photo && photo.size > 0) {
+    photoBuf = Buffer.from(await photo.arrayBuffer());
+    const check = validateUpload(photo.name, photoBuf, MENTOR_PHOTO_MAX_BYTES, { imagesOnly: true });
+    if (!check.ok) throw validation(check.error, { photo: check.error });
+    photoCheck = check;
+  }
+  const existing = await db.mentorApplication.findFirst({ where: { linkedinUrl: fields.linkedinUrl, status: { in: ["NEW", "APPROVED"] } } });
+  if (existing) throw precondition("We already have your mentor registration — our team will be in touch by email.");
+  const data = { ...fields, domains: await resolveMentorDomains(fields.domains, otherDomain) };
+  let photoKey: string | null = null;
+  if (photoBuf && photoCheck) {
+    photoKey = `public/mentors/${randomToken(12)
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "x")}.${photoCheck.ext}`;
+    await storage().put(photoKey, photoBuf, photoCheck.mime);
+  }
+  try {
+    await db.mentorApplication.create({ data: { ...data, photoKey } });
+  } catch (e) {
+    if (photoKey) await storage().delete(photoKey).catch(() => {});
+    throw e;
+  }
+  const admins = await db.user.findMany({ where: { platformRole: { in: ["ADMIN", "SUPER_ADMIN"] }, status: "ACTIVE" }, select: { id: true } });
+  await db.notification.createMany({
+    data: admins.map((a) => ({
+      userId: a.id,
+      type: "mentor_application.new",
+      title: "New mentor registration",
+      body: `${d.name} · ${d.designation} · ${d.city}, ${d.country}`,
+      link: "/admin/mentors",
+    })),
+  });
+}
+
+/** Public mentor directory: everyone who registered, minus those an admin declined. Never exposes email. */
+export async function listPublicMentors() {
+  return db.mentorApplication.findMany({
+    where: { status: { in: ["NEW", "APPROVED"] } },
+    select: { id: true, name: true, designation: true, linkedinUrl: true, photoKey: true, domains: true },
+    orderBy: { createdAt: "desc" },
+    take: 500,
+  });
+}
+
+export async function listMentorApplications(actor: Actor | null) {
+  requirePlatformAdmin(actor);
+  return db.mentorApplication.findMany({ orderBy: { createdAt: "desc" }, take: 200 });
+}
+
+export async function setMentorApplicationStatus(actor: Actor | null, id: string, status: "NEW" | "APPROVED" | "DECLINED") {
+  const admin = requirePlatformAdmin(actor);
+  if (!["NEW", "APPROVED", "DECLINED"].includes(status)) throw validation("Invalid status.");
+  await db.mentorApplication.update({ where: { id }, data: { status } });
+  await audit({ actorId: admin.id, action: "admin.mentor_application_status", entityType: "MentorApplication", entityId: id, meta: { status } });
 }
 
 export async function systemQueues(actor: Actor | null) {
