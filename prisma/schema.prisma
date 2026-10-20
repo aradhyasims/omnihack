@@ -1,0 +1,1431 @@
+// OmniHack data model.
+// Conventions: cuid string ids, createdAt/updatedAt on mutable records, explicit enums for
+// every status machine, and indexes on every foreign key used for filtering.
+// Confidential data (evaluations, private comments, submissions) is private by default and
+// only exposed through the authorization layer in src/server.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────────────────────── Identity ─────────────────────────────
+
+enum PlatformRole {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  DEACTIVATED
+  SUSPENDED
+}
+
+model User {
+  id               String       @id @default(cuid())
+  email            String       @unique
+  name             String
+  passwordHash     String
+  emailVerifiedAt  DateTime?
+  platformRole     PlatformRole @default(USER)
+  status           UserStatus   @default(ACTIVE)
+  headline         String?
+  bio              String?
+  skills           String[]
+  institution      String?
+  country          String?
+  githubUrl        String?
+  linkedinUrl      String?
+  // MFA (TOTP). Secret encrypted at rest with ENCRYPTION_KEY.
+  mfaSecretEnc     String?
+  mfaEnabledAt     DateTime?
+  // Consent & privacy preferences
+  consentShowcase  Boolean      @default(false)
+  consentMarketing Boolean      @default(false)
+  termsAcceptedAt  DateTime?
+  isDemo           Boolean      @default(false)
+  deactivatedAt    DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  sessions              Session[]
+  tokens                UserToken[]
+  orgMemberships        OrganizationMembership[]
+  competitionRoles      CompetitionMember[]
+  registrations         Registration[]
+  teamMemberships       TeamMembership[]
+  ledTeams              Team[]                   @relation("TeamLeader")
+  judgeAssignments      JudgeAssignment[]
+  notifications         Notification[]
+  certificates          Certificate[]
+  auditLogs             AuditLog[]
+  supportRequests       SupportRequest[]
+  mentorNotes           MentorNote[]
+  createdCompetitions   Competition[]            @relation("CompetitionCreator")
+  individualProjects    Project[]                @relation("ProjectOwner")
+  talentConsents        TalentConsent[]
+  applications          CandidateApplication[]   @relation("Candidate")
+}
+
+model Session {
+  id          String   @id @default(cuid())
+  tokenHash   String   @unique
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mfaVerified Boolean  @default(false)
+  expiresAt   DateTime
+  absoluteExpiresAt DateTime
+  lastSeenAt  DateTime @default(now())
+  ipHash      String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+enum UserTokenType {
+  EMAIL_VERIFY
+  PASSWORD_RESET
+}
+
+model UserToken {
+  id        String        @id @default(cuid())
+  userId    String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      UserTokenType
+  tokenHash String        @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime      @default(now())
+
+  @@index([userId, type])
+}
+
+// ─────────────────────────── Organizations ──────────────────────────
+
+enum OrganizationType {
+  COMPANY
+  UNIVERSITY
+  COLLEGE
+  SCHOOL
+  NONPROFIT
+  COMMUNITY
+  GOVERNMENT
+  OTHER
+}
+
+enum OrgRole {
+  OWNER
+  COORDINATOR
+  MEMBER
+}
+
+model Organization {
+  id          String           @id @default(cuid())
+  name        String
+  slug        String           @unique
+  type        OrganizationType @default(OTHER)
+  description String?
+  website     String?
+  logoImageKey String?
+  // Verified organizations may publish without platform approval.
+  verified    Boolean          @default(false)
+  isDemo      Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  members      OrganizationMembership[]
+  competitions Competition[]
+}
+
+model OrganizationMembership {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           OrgRole
+  createdAt      DateTime     @default(now())
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+}
+
+// ──────────────────────────── Competitions ───────────────────────────
+
+enum CompetitionType {
+  IDEATHON
+  HACKATHON
+  HYBRID
+}
+
+enum DeliveryMode {
+  ONLINE
+  OFFLINE
+  HYBRID
+}
+
+enum CompetitionStatus {
+  DRAFT
+  PENDING_APPROVAL
+  PUBLISHED
+  CANCELLED
+  COMPLETED
+  ARCHIVED
+}
+
+enum Visibility {
+  PUBLIC
+  UNLISTED
+  PRIVATE
+}
+
+enum ParticipationMode {
+  INDIVIDUAL
+  TEAM
+  BOTH
+}
+
+enum ResultsStatus {
+  NONE
+  PROVISIONAL
+  APPROVED
+  PUBLISHED
+}
+
+model Competition {
+  id               String            @id @default(cuid())
+  organizationId   String
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  createdById      String
+  createdBy        User              @relation("CompetitionCreator", fields: [createdById], references: [id])
+  slug             String            @unique
+  title            String
+  tagline          String            @default("")
+  description      String            @default("")
+  bannerTheme      String            @default("indigo")
+  // Optional uploaded images (storage keys under the public/ prefix, served by /media/*)
+  bannerImageKey   String?
+  logoImageKey     String?
+  type             CompetitionType   @default(HACKATHON)
+  mode             DeliveryMode      @default(ONLINE)
+  category         String            @default("General")
+  tags             String[]
+  language         String            @default("English")
+  timezone         String            @default("UTC")
+  status           CompetitionStatus @default(DRAFT)
+  visibility       Visibility        @default(PUBLIC)
+  wizardStep       Int               @default(1)
+
+  // Contact
+  contactName      String?
+  contactEmail     String?
+
+  // Venue / online delivery
+  venueName        String?
+  venueAddress     String?
+  city             String?
+  country          String?
+  meetingUrl       String?
+  onlineInstructions String?
+
+  // Key dates (all stored in UTC; displayed in `timezone`)
+  registrationOpensAt   DateTime?
+  registrationClosesAt  DateTime?
+  teamFormationDeadline DateTime?
+  startsAt              DateTime?
+  endsAt                DateTime?
+  resultsAt             DateTime?
+  certificatesAt        DateTime?
+  registrationClosedManually Boolean @default(false)
+
+  // Eligibility
+  participationMode ParticipationMode @default(TEAM)
+  minTeamSize      Int               @default(1)
+  maxTeamSize      Int               @default(4)
+  maxParticipants  Int?
+  eligibilityTypes String[]          // STUDENT | PROFESSIONAL | STARTUP | OPEN
+  minAge           Int?
+  maxAge           Int?
+  institutionRequirement String?
+  geoRestriction   String?
+  requiredDocuments String[]
+  // [{key,label,type:"text"|"textarea"|"select"|"checkbox",required,options?}]
+  customFields     Json              @default("[]")
+  requireRegistrationApproval Boolean @default(false)
+
+  // Rules & policies (keyed text blocks) and FAQs [{q,a}]
+  rules            Json              @default("{}")
+  faqs             Json              @default("[]")
+
+  // Payments (module disabled unless configured)
+  isPaid           Boolean           @default(false)
+  feeAmountMinor   Int               @default(0)
+  currency         String            @default("INR")
+
+  // Results publication
+  resultsStatus    ResultsStatus     @default(NONE)
+  resultsApprovedAt DateTime?
+  resultsApprovedById String?
+  resultsPublishedAt DateTime?
+  tieBreakPolicy   String            @default("CRITERIA_ORDER_THEN_SUBMISSION_TIME")
+
+  isFeatured       Boolean           @default(false)
+
+  // Placement & recruitment: participants opt in individually; recruiters only see consenting
+  // candidates. Rank bands (e.g. "Top 10%") are shown only after results are published.
+  hiringEnabled    Boolean           @default(false)
+  hiringNote       String?
+  showRankBandToRecruiters Boolean   @default(true)
+  isDemo           Boolean           @default(false)
+  publishedAt      DateTime?
+  cancelledAt      DateTime?
+  cancellationReason String?
+  archivedAt       DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  tracks         Track[]
+  challenges     Challenge[]
+  stages         Stage[]
+  prizes         Prize[]
+  members        CompetitionMember[]
+  registrations  Registration[]
+  teams          Team[]
+  projects       Project[]
+  announcements  Announcement[]
+  sessions       EventSession[]
+  attendance     Attendance[]
+  certificates   Certificate[]
+  certificateTemplate CertificateTemplate?
+  sponsors       CompetitionSponsor[]
+  openings       JobOpening[]
+  talentConsents TalentConsent[]
+  applications   CandidateApplication[]
+  supportRequests SupportRequest[]
+  statusHistory  CompetitionStatusChange[]
+
+  @@index([organizationId])
+  @@index([status, visibility])
+  @@index([type])
+  @@index([registrationClosesAt])
+}
+
+model CompetitionStatusChange {
+  id            String            @id @default(cuid())
+  competitionId String
+  competition   Competition       @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  fromStatus    CompetitionStatus
+  toStatus      CompetitionStatus
+  actorId       String?
+  reason        String?
+  createdAt     DateTime          @default(now())
+
+  @@index([competitionId])
+}
+
+model Track {
+  id            String      @id @default(cuid())
+  competitionId String
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  name          String
+  description   String      @default("")
+  order         Int         @default(0)
+
+  challenges Challenge[]
+  prizes     Prize[]
+  projects   Project[]
+
+  @@index([competitionId])
+}
+
+enum ChallengeVisibility {
+  PUBLIC
+  REGISTERED
+  HIDDEN
+}
+
+model Challenge {
+  id                     String              @id @default(cuid())
+  competitionId          String
+  competition            Competition         @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  trackId                String?
+  track                  Track?              @relation(fields: [trackId], references: [id], onDelete: SetNull)
+  title                  String
+  description            String              @default("")
+  context                String              @default("")
+  desiredOutcome         String              @default("")
+  eligibilityNote        String              @default("")
+  submissionRequirements String              @default("")
+  evaluationNotes        String              @default("")
+  referenceLinks         String[]
+  visibility             ChallengeVisibility @default(PUBLIC)
+  order                  Int                 @default(0)
+
+  projects Project[]
+  teams    Team[]
+
+  @@index([competitionId])
+}
+
+// ───────────────────────── Configurable stages ─────────────────────────
+
+enum StageType {
+  REGISTRATION
+  ELIGIBILITY_SCREENING
+  IDEA_SUBMISSION
+  ABSTRACT_EVALUATION
+  PITCH_PRESENTATION
+  PROTOTYPE_DEVELOPMENT
+  PROGRESS_CHECKPOINT
+  FINAL_SUBMISSION
+  TECHNICAL_REVIEW
+  DEMONSTRATION
+  FINAL_PRESENTATION
+  RESULTS
+  CERTIFICATE_ISSUANCE
+}
+
+enum StageStatus {
+  PENDING
+  OPEN
+  CLOSED
+  JUDGING
+  COMPLETED
+}
+
+enum SubmissionTemplate {
+  NONE
+  IDEA
+  PROJECT
+}
+
+enum AdvancementRule {
+  MANUAL
+  TOP_N
+  TOP_PERCENT
+  MIN_SCORE
+}
+
+enum ResultVisibility {
+  PRIVATE
+  PROVISIONAL
+  PUBLIC
+}
+
+model Stage {
+  id                    String             @id @default(cuid())
+  competitionId         String
+  competition           Competition        @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  name                  String
+  type                  StageType
+  description           String             @default("")
+  order                 Int
+  enabled               Boolean            @default(true)
+  status                StageStatus        @default(PENDING)
+  startsAt              DateTime?
+  endsAt                DateTime?
+  // Submission configuration
+  acceptsSubmissions    Boolean            @default(false)
+  submissionTemplate    SubmissionTemplate @default(NONE)
+  // { [fieldKey]: { enabled: boolean, required: boolean } } overrides of the template
+  submissionFields      Json               @default("{}")
+  requiredDocuments     String[]
+  allowLateSubmissions  Boolean            @default(false)
+  // Participants eligible for this stage: everyone registered, or only those advanced from the previous judged stage
+  onlyAdvancedProjects  Boolean            @default(false)
+  // Judging
+  isJudged              Boolean            @default(false)
+  minJudgesPerProject   Int                @default(1)
+  advancementRule       AdvancementRule    @default(MANUAL)
+  advancementValue      Float?
+  resultVisibility      ResultVisibility   @default(PRIVATE)
+  notifyOnOpen          Boolean            @default(true)
+  notifyOnAdvance       Boolean            @default(true)
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  rubric       Rubric?
+  transitions  StageTransition[]
+  submissions  Submission[]
+  assignments  JudgeAssignment[]
+  results      StageResult[]
+  slots        PresentationSlot[]
+
+  @@index([competitionId, order])
+}
+
+model StageTransition {
+  id         String      @id @default(cuid())
+  stageId    String
+  stage      Stage       @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  fromStatus StageStatus
+  toStatus   StageStatus
+  actorId    String?
+  reason     String?
+  createdAt  DateTime    @default(now())
+
+  @@index([stageId])
+}
+
+model Rubric {
+  id           String            @id @default(cuid())
+  stageId      String            @unique
+  stage        Stage             @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  instructions String            @default("")
+  lockedAt     DateTime?
+  criteria     RubricCriterion[]
+}
+
+model RubricCriterion {
+  id              String   @id @default(cuid())
+  rubricId        String
+  rubric          Rubric   @relation(fields: [rubricId], references: [id], onDelete: Cascade)
+  name            String
+  description     String   @default("")
+  weight          Int      // percent, all criteria in a rubric must total 100
+  minScore        Int      @default(0)
+  maxScore        Int      @default(10)
+  commentRequired Boolean  @default(false)
+  instructions    String   @default("")
+  // Lower number = consulted earlier when breaking ties
+  tieBreakPriority Int?
+  order           Int      @default(0)
+
+  scores EvaluationScore[]
+
+  @@index([rubricId])
+}
+
+// ─────────────────────── Event-specific role assignments ───────────────────────
+
+enum CompetitionRole {
+  OWNER
+  OPS_COORDINATOR
+  JUDGE
+  MENTOR
+  SPONSOR_REP
+  AUDITOR
+  VOLUNTEER
+  RECRUITER
+}
+
+enum MemberStatus {
+  ACTIVE
+  REMOVED
+}
+
+model CompetitionMember {
+  id            String          @id @default(cuid())
+  competitionId String
+  competition   Competition     @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role          CompetitionRole
+  status        MemberStatus    @default(ACTIVE)
+  expertise     String?
+  // Free-text duty for volunteers / ops staff (e.g. "Registration desk, Hall A")
+  note          String?
+  // Hiring company for RECRUITER members (shown to candidates on shortlists and offers)
+  company       String?
+  showPublicly  Boolean         @default(false)
+  createdAt     DateTime        @default(now())
+
+  @@unique([competitionId, userId, role])
+  @@index([userId])
+}
+
+// ──────────────────────────── Registration ────────────────────────────
+
+enum RegistrationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  WAITLISTED
+  WITHDRAWN
+}
+
+enum EligibilityStatus {
+  PENDING
+  ELIGIBLE
+  INELIGIBLE
+}
+
+enum PaymentStatus {
+  NOT_REQUIRED
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+model Registration {
+  id                String             @id @default(cuid())
+  competitionId     String
+  competition       Competition        @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status            RegistrationStatus @default(PENDING)
+  eligibilityStatus EligibilityStatus  @default(PENDING)
+  eligibilityNote   String?
+  participantType   String             // STUDENT | PROFESSIONAL | STARTUP | OTHER
+  institution       String?
+  answers           Json               @default("{}")
+  rulesAcceptedAt   DateTime
+  mediaConsent      Boolean            @default(false)
+  paymentStatus     PaymentStatus      @default(NOT_REQUIRED)
+  checkInCode       String             @unique
+  reviewedById      String?
+  reviewedAt        DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  payments Payment[]
+
+  @@unique([competitionId, userId])
+  @@index([userId])
+  @@index([competitionId, status])
+}
+
+// ─────────────────────────────── Teams ───────────────────────────────
+
+enum TeamStatus {
+  FORMING
+  LOCKED
+  DISSOLVED
+  DISQUALIFIED
+}
+
+model Team {
+  id            String      @id @default(cuid())
+  competitionId String
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  name          String
+  description   String      @default("")
+  leaderId      String
+  leader        User        @relation("TeamLeader", fields: [leaderId], references: [id])
+  challengeId   String?
+  challenge     Challenge?  @relation(fields: [challengeId], references: [id], onDelete: SetNull)
+  inviteCode    String      @unique
+  status        TeamStatus  @default(FORMING)
+  lookingForMembers Boolean @default(false)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  members     TeamMembership[]
+  invitations TeamInvitation[]
+  events      TeamEvent[]
+  project     Project?
+
+  @@unique([competitionId, name])
+  @@index([competitionId])
+}
+
+enum TeamRole {
+  LEADER
+  MEMBER
+}
+
+// Only ACTIVE memberships are stored here; history lives in TeamEvent.
+// The (competitionId, userId) unique constraint prevents a user joining two teams in one competition.
+model TeamMembership {
+  id            String   @id @default(cuid())
+  teamId        String
+  team          Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  competitionId String
+  role          TeamRole @default(MEMBER)
+  joinedAt      DateTime @default(now())
+
+  @@unique([competitionId, userId])
+  @@index([teamId])
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  REVOKED
+  EXPIRED
+}
+
+model TeamInvitation {
+  id          String           @id @default(cuid())
+  teamId      String
+  team        Team             @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  email       String
+  tokenHash   String           @unique
+  status      InvitationStatus @default(PENDING)
+  invitedById String
+  expiresAt   DateTime
+  respondedAt DateTime?
+  createdAt   DateTime         @default(now())
+
+  @@index([teamId])
+  @@index([email])
+}
+
+model TeamEvent {
+  id        String   @id @default(cuid())
+  teamId    String
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId    String?
+  actorId   String?
+  action    String   // CREATED | JOINED | LEFT | REMOVED | LEADER_CHANGED | DISSOLVED | LOCKED | INVITED
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([teamId])
+}
+
+// ───────────────────────── Projects & submissions ─────────────────────────
+
+enum ProjectStatus {
+  ACTIVE
+  WITHDRAWN
+  DISQUALIFIED
+}
+
+enum ShowcaseStatus {
+  PRIVATE
+  REQUESTED
+  PUBLISHED
+  REJECTED
+}
+
+// A project is the durable record of one team's (or individual's) work in a competition.
+// Each stage receives its own Submission, which preserves idea → prototype history
+// for hybrid competitions without duplicating the project.
+model Project {
+  id            String         @id @default(cuid())
+  competitionId String
+  competition   Competition    @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  teamId        String?        @unique
+  team          Team?          @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  ownerId       String?
+  owner         User?          @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  title         String
+  summary       String         @default("")
+  challengeId   String?
+  challenge     Challenge?     @relation(fields: [challengeId], references: [id], onDelete: SetNull)
+  trackId       String?
+  track         Track?         @relation(fields: [trackId], references: [id], onDelete: SetNull)
+  status        ProjectStatus  @default(ACTIVE)
+  // Showcase (public) — only published with organizer approval + owner request
+  showcaseStatus ShowcaseStatus @default(PRIVATE)
+  showcaseSummary String?
+  showcaseImpact  String?
+  demoUrl        String?
+  repoUrl        String?
+  showMembers    Boolean        @default(false)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  submissions      Submission[]
+  assignments      JudgeAssignment[]
+  stageResults     StageResult[]
+  awards           AwardWinner[]
+  mentorNotes      MentorNote[]
+  slots            PresentationSlot[]
+  mentorAssignments MentorAssignment[]
+
+  @@unique([competitionId, ownerId])
+  @@index([competitionId, status])
+  @@index([showcaseStatus])
+}
+
+enum SubmissionStatus {
+  DRAFT
+  SUBMITTED
+  WITHDRAWN
+}
+
+model Submission {
+  id            String           @id @default(cuid())
+  projectId     String
+  project       Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  stageId       String
+  stage         Stage            @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  status        SubmissionStatus @default(DRAFT)
+  content       Json             @default("{}")
+  version       Int              @default(0)
+  isLate        Boolean          @default(false)
+  submittedAt   DateTime?
+  submittedById String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  versions    SubmissionVersion[]
+  attachments Attachment[]
+
+  @@unique([projectId, stageId])
+  @@index([stageId, status])
+}
+
+model SubmissionVersion {
+  id           String     @id @default(cuid())
+  submissionId String
+  submission   Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  version      Int
+  content      Json
+  attachmentIds String[]
+  createdById  String
+  note         String?
+  createdAt    DateTime   @default(now())
+
+  @@unique([submissionId, version])
+}
+
+enum ScanStatus {
+  NOT_SCANNED
+  PENDING
+  CLEAN
+  INFECTED
+}
+
+model Attachment {
+  id           String     @id @default(cuid())
+  submissionId String
+  submission   Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  fieldKey     String     @default("documents")
+  fileName     String
+  mimeType     String
+  sizeBytes    Int
+  storageKey   String     @unique
+  sha256       String
+  scanStatus   ScanStatus @default(NOT_SCANNED)
+  uploadedById String
+  deletedAt    DateTime?
+  createdAt    DateTime   @default(now())
+
+  @@index([submissionId])
+}
+
+// ─────────────────────────────── Mentoring ───────────────────────────────
+
+model MentorAssignment {
+  id            String   @id @default(cuid())
+  competitionId String
+  mentorId      String
+  projectId     String
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+
+  @@unique([mentorId, projectId])
+  @@index([competitionId])
+}
+
+model MentorNote {
+  id            String   @id @default(cuid())
+  projectId     String
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  mentorId      String
+  mentor        User     @relation(fields: [mentorId], references: [id], onDelete: Cascade)
+  body          String
+  visibleToTeam Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  @@index([projectId])
+}
+
+// ─────────────────────────────── Judging ───────────────────────────────
+
+enum AssignmentStatus {
+  ASSIGNED
+  IN_PROGRESS
+  SUBMITTED
+  CONFLICT_DECLARED
+  REVOKED
+}
+
+model JudgeAssignment {
+  id           String           @id @default(cuid())
+  stageId      String
+  stage        Stage            @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  judgeId      String
+  judge        User             @relation(fields: [judgeId], references: [id], onDelete: Cascade)
+  projectId    String
+  project      Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  status       AssignmentStatus @default(ASSIGNED)
+  conflictNote String?
+  dueAt        DateTime?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  evaluation Evaluation?
+
+  @@unique([stageId, judgeId, projectId])
+  @@index([judgeId, status])
+  @@index([projectId])
+}
+
+enum EvaluationStatus {
+  DRAFT
+  FINAL
+}
+
+model Evaluation {
+  id             String           @id @default(cuid())
+  assignmentId   String           @unique
+  assignment     JudgeAssignment  @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  status         EvaluationStatus @default(DRAFT)
+  // Weighted total normalised to 0..100, computed server-side
+  totalScore     Float?
+  feedbackToTeam String           @default("")
+  privateComment String           @default("")
+  finalizedAt    DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  scores      EvaluationScore[]
+  corrections EvaluationCorrection[]
+}
+
+model EvaluationScore {
+  id           String          @id @default(cuid())
+  evaluationId String
+  evaluation   Evaluation      @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  criterionId  String
+  criterion    RubricCriterion @relation(fields: [criterionId], references: [id], onDelete: Cascade)
+  score        Float
+  comment      String          @default("")
+
+  @@unique([evaluationId, criterionId])
+}
+
+model EvaluationCorrection {
+  id           String     @id @default(cuid())
+  evaluationId String
+  evaluation   Evaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  actorId      String
+  reason       String
+  before       Json
+  after        Json
+  createdAt    DateTime   @default(now())
+}
+
+enum AdvancementDecision {
+  PENDING
+  ADVANCED
+  NOT_ADVANCED
+  DISQUALIFIED
+}
+
+// Computed rank/score per stage plus the human advancement decision.
+model StageResult {
+  id           String              @id @default(cuid())
+  stageId      String
+  stage        Stage               @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  projectId    String
+  project      Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  score        Float?
+  rank         Int?
+  evaluationCount Int              @default(0)
+  decision     AdvancementDecision @default(PENDING)
+  decidedById  String?
+  decidedAt    DateTime?
+  note         String?
+  updatedAt    DateTime            @updatedAt
+
+  @@unique([stageId, projectId])
+}
+
+// ─────────────────────────── Prizes & results ───────────────────────────
+
+enum PrizeCategory {
+  OVERALL
+  TRACK
+  SPECIAL
+  SPONSOR
+  NON_MONETARY
+}
+
+model Prize {
+  id            String        @id @default(cuid())
+  competitionId String
+  competition   Competition   @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  title         String
+  category      PrizeCategory @default(OVERALL)
+  rank          Int?
+  trackId       String?
+  track         Track?        @relation(fields: [trackId], references: [id], onDelete: SetNull)
+  sponsorId     String?
+  description   String        @default("")
+  valueText     String?
+  valueVerified Boolean       @default(false)
+  order         Int           @default(0)
+
+  winners AwardWinner[]
+
+  @@index([competitionId])
+}
+
+model AwardWinner {
+  id        String   @id @default(cuid())
+  prizeId   String
+  prize     Prize    @relation(fields: [prizeId], references: [id], onDelete: Cascade)
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  citation  String?
+  createdAt DateTime @default(now())
+
+  @@unique([prizeId, projectId])
+}
+
+// ───────────────────────────── Certificates ─────────────────────────────
+
+enum CertificateCategory {
+  PARTICIPANT
+  FINALIST
+  WINNER
+  MENTOR
+  JUDGE
+  VOLUNTEER
+  ORGANIZER
+}
+
+model CertificateTemplate {
+  id             String      @id @default(cuid())
+  competitionId  String      @unique
+  competition    Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  accentColor    String      @default("#4F46E5")
+  heading        String      @default("Certificate of Achievement")
+  bodyText       String      @default("")
+  signatoryName  String      @default("")
+  signatoryTitle String      @default("")
+}
+
+model Certificate {
+  id            String              @id @default(cuid())
+  code          String              @unique
+  competitionId String
+  competition   Competition         @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recipientName String
+  category      CertificateCategory
+  // "" when no distinction; never NULL so the unique constraint below holds in PostgreSQL
+  distinction   String              @default("")
+  issuedAt      DateTime            @default(now())
+  issuedById    String?
+  revokedAt     DateTime?
+  revokedReason String?
+  replacesId    String?
+  verifications Int                 @default(0)
+
+  @@unique([competitionId, userId, category, distinction])
+  @@index([userId])
+}
+
+// ─────────────────────────── Event-day operations ───────────────────────────
+
+enum SessionKind {
+  KICKOFF
+  WORKSHOP
+  MENTOR_SESSION
+  PRESENTATION
+  CHECKPOINT
+  CEREMONY
+  OTHER
+}
+
+model EventSession {
+  id            String      @id @default(cuid())
+  competitionId String
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  title         String
+  kind          SessionKind @default(OTHER)
+  description   String      @default("")
+  startsAt      DateTime
+  endsAt        DateTime
+  location      String?
+  meetingUrl    String?
+  hostName      String?
+
+  attendance Attendance[]
+  slots      PresentationSlot[]
+
+  @@index([competitionId, startsAt])
+}
+
+model PresentationSlot {
+  id        String        @id @default(cuid())
+  stageId   String?
+  stage     Stage?        @relation(fields: [stageId], references: [id], onDelete: SetNull)
+  sessionId String?
+  session   EventSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  projectId String
+  project   Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  startsAt  DateTime
+  endsAt    DateTime
+  room      String?
+
+  @@index([projectId])
+}
+
+enum AttendanceMethod {
+  QR
+  MANUAL
+}
+
+model Attendance {
+  id             String           @id @default(cuid())
+  competitionId  String
+  competition    Competition      @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  userId         String
+  sessionId      String?
+  session        EventSession?    @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  // "EVENT" for overall event check-in, otherwise the session id (non-null so uniqueness holds)
+  scopeKey       String           @default("EVENT")
+  method         AttendanceMethod
+  checkedInById  String
+  overrideReason String?
+  checkedInAt    DateTime         @default(now())
+
+  @@unique([competitionId, userId, scopeKey])
+  @@index([competitionId])
+}
+
+model Announcement {
+  id            String      @id @default(cuid())
+  competitionId String
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  title         String
+  body          String
+  audience      String      @default("ALL") // ALL | PARTICIPANTS | JUDGES | MENTORS | STAFF
+  pinned        Boolean     @default(false)
+  authorId      String
+  createdAt     DateTime    @default(now())
+
+  @@index([competitionId, createdAt])
+}
+
+enum SupportStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+}
+
+model SupportRequest {
+  id            String        @id @default(cuid())
+  competitionId String?
+  competition   Competition?  @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject       String
+  body          String
+  status        SupportStatus @default(OPEN)
+  response      String?
+  respondedById String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([competitionId, status])
+}
+
+// ───────────────────────────── Notifications ─────────────────────────────
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  body      String
+  link      String?
+  dedupeKey String?   @unique
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, readAt])
+}
+
+enum OutboxStatus {
+  QUEUED
+  SENT
+  FAILED
+}
+
+model EmailOutbox {
+  id        String       @id @default(cuid())
+  toEmail   String
+  subject   String
+  text      String
+  html      String
+  status    OutboxStatus @default(QUEUED)
+  attempts  Int          @default(0)
+  lastError String?
+  provider  String?
+  dedupeKey String?      @unique
+  createdAt DateTime     @default(now())
+  sentAt    DateTime?
+
+  @@index([status, createdAt])
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  DONE
+  FAILED
+}
+
+// Minimal durable job queue (Postgres-backed). Swap for SQS via src/server/jobs when deployed on AWS.
+model Job {
+  id        String    @id @default(cuid())
+  type      String
+  payload   Json
+  status    JobStatus @default(QUEUED)
+  attempts  Int       @default(0)
+  maxAttempts Int     @default(5)
+  runAt     DateTime  @default(now())
+  lockedAt  DateTime?
+  lastError String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([status, runAt])
+}
+
+// ───────────────────────────── Sponsors ─────────────────────────────
+
+model Sponsor {
+  id           String  @id @default(cuid())
+  name         String
+  slug         String  @unique
+  website      String?
+  description  String  @default("")
+  contactName  String?
+  contactEmail String?
+  isDemo       Boolean @default(false)
+
+  competitions CompetitionSponsor[]
+}
+
+model CompetitionSponsor {
+  id            String      @id @default(cuid())
+  competitionId String
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  sponsorId     String
+  sponsor       Sponsor     @relation(fields: [sponsorId], references: [id], onDelete: Cascade)
+  tier          String      @default("Partner")
+  benefits      String      @default("")
+  // A sponsor is only displayed publicly once the relationship is confirmed.
+  confirmed     Boolean     @default(false)
+
+  @@unique([competitionId, sponsorId])
+}
+
+// ───────────────────────────── Payments (optional) ─────────────────────────────
+
+model Payment {
+  id             String        @id @default(cuid())
+  registrationId String
+  registration   Registration  @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  provider       String
+  providerRef    String?       @unique
+  amountMinor    Int
+  currency       String
+  status         PaymentStatus @default(PENDING)
+  receiptNumber  String?       @unique
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+}
+
+model WebhookEvent {
+  id          String   @id @default(cuid())
+  provider    String
+  eventId     String
+  payload     Json
+  processedAt DateTime?
+  createdAt   DateTime @default(now())
+
+  @@unique([provider, eventId])
+}
+
+// ───────────────────────────── Content & admin ─────────────────────────────
+
+enum InquiryTopic {
+  GENERAL
+  HOST_DEMO
+  HIRING
+  SUPPORT
+  PARTNERSHIP
+  PRIVACY
+}
+
+model ContactInquiry {
+  id           String       @id @default(cuid())
+  name         String
+  email        String
+  organization String?
+  topic        InquiryTopic @default(GENERAL)
+  message      String
+  status       String       @default("NEW") // NEW | IN_PROGRESS | CLOSED
+  createdAt    DateTime     @default(now())
+}
+
+model AuditLog {
+  id            String   @id @default(cuid())
+  actorId       String?
+  actor         User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action        String
+  entityType    String
+  entityId      String?
+  competitionId String?
+  organizationId String?
+  meta          Json     @default("{}")
+  ipHash        String?
+  createdAt     DateTime @default(now())
+
+  @@index([competitionId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([entityType, entityId])
+}
+
+model AiOperation {
+  id         String   @id @default(cuid())
+  feature    String
+  provider   String
+  status     String
+  actorId    String?
+  entityType String?
+  entityId   String?
+  createdAt  DateTime @default(now())
+}
+
+model PlatformSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+// ───────────────────────── Placement & recruitment ─────────────────────────
+
+enum OpeningType {
+  INTERNSHIP
+  FULL_TIME
+  PRE_PLACEMENT_OFFER
+  CONTRACT
+}
+
+enum WorkMode {
+  ONSITE
+  REMOTE
+  HYBRID
+}
+
+// A role a hiring company offers through a competition (internship, full-time, PPO, contract).
+model JobOpening {
+  id            String       @id @default(cuid())
+  competitionId String
+  competition   Competition  @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  company       String
+  title         String
+  type          OpeningType
+  workMode      WorkMode     @default(ONSITE)
+  locations     String[]
+  skills        String[]
+  description   String       @default("")
+  // Shown as entered; organizers should only publish bands the company has confirmed.
+  compensation  String?
+  durationText  String?      // internships: e.g. "6 months"
+  positions     Int          @default(1)
+  closesAt      DateTime?
+  active        Boolean      @default(true)
+  createdById   String
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  applications CandidateApplication[]
+
+  @@index([competitionId, active])
+}
+
+// Explicit, per-competition consent to share a participant's profile with hiring partners.
+// Withdrawing consent hides the profile immediately and deletes the uploaded CV.
+model TalentConsent {
+  id                String      @id @default(cuid())
+  competitionId     String
+  competition       Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleInterests     String[]    // OpeningType values
+  preferredLocations String[]
+  availableFrom     DateTime?
+  graduationYear    Int?
+  sharePortfolio    Boolean     @default(true) // allow recruiters to read the submitted project
+  adultConfirmed    Boolean     @default(false)
+  resumeKey         String?
+  resumeName        String?
+  resumeScanStatus  ScanStatus  @default(NOT_SCANNED)
+  consentedAt       DateTime    @default(now())
+  withdrawnAt       DateTime?
+  updatedAt         DateTime    @updatedAt
+
+  @@unique([competitionId, userId])
+  @@index([competitionId, withdrawnAt])
+}
+
+enum ApplicationStatus {
+  SHORTLISTED
+  INTERVIEW_INVITED
+  INTERVIEW_ACCEPTED
+  OFFERED
+  OFFER_ACCEPTED
+  OFFER_DECLINED
+  NOT_SELECTED
+  WITHDRAWN
+}
+
+// A candidate in a company's hiring pipeline for one opening (or "general" interest).
+model CandidateApplication {
+  id               String            @id @default(cuid())
+  competitionId    String
+  competition      Competition       @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  candidateId      String
+  candidate        User              @relation("Candidate", fields: [candidateId], references: [id], onDelete: Cascade)
+  openingId        String?
+  opening          JobOpening?       @relation(fields: [openingId], references: [id], onDelete: SetNull)
+  // "general" when not tied to an opening — keeps the unique constraint NULL-free.
+  openingKey       String            @default("general")
+  company          String
+  recruiterId      String
+  status           ApplicationStatus @default(SHORTLISTED)
+  interviewAt      DateTime?
+  interviewDetails String?
+  offerType        OpeningType?
+  offerDetails     String?
+  recruiterNote    String            @default("") // private to the hiring team
+  candidateNote    String?
+  firstResponseAt  DateTime?         // first status change after shortlisting (response-time metric)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  events ApplicationEvent[]
+
+  @@unique([competitionId, candidateId, openingKey])
+  @@index([competitionId, status])
+  @@index([candidateId])
+}
+
+model ApplicationEvent {
+  id            String               @id @default(cuid())
+  applicationId String
+  application   CandidateApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  fromStatus    ApplicationStatus?
+  toStatus      ApplicationStatus
+  actorId       String
+  note          String?
+  createdAt     DateTime             @default(now())
+
+  @@index([applicationId])
+}

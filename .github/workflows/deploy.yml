@@ -1,0 +1,57 @@
+# Deployment pipeline: build image → push to ECR → migrate → deploy to staging → manual approval → production.
+# Requires repository configuration (OIDC role, ECR repo, ECS cluster/services) — see docs/DEPLOYMENT.md.
+# Not executed in the original build environment (no AWS account was available).
+name: Deploy
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - id: meta
+        run: echo "image=${{ steps.ecr.outputs.registry }}/omnihack:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+      - run: docker build -t ${{ steps.meta.outputs.image }} . && docker push ${{ steps.meta.outputs.image }}
+
+  staging:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with: { role-to-assume: "${{ vars.AWS_DEPLOY_ROLE_ARN }}", aws-region: "${{ vars.AWS_REGION }}" }
+      - name: Run migrations (one-off ECS task)
+        run: ./infra/scripts/run-migrations.sh staging ${{ needs.build.outputs.image }}
+      - name: Deploy web + worker
+        run: ./infra/scripts/deploy-service.sh staging ${{ needs.build.outputs.image }}
+      - name: Smoke test
+        run: curl --fail --retry 10 --retry-delay 6 "${{ vars.STAGING_URL }}/api/health"
+
+  production:
+    needs: [build, staging]
+    runs-on: ubuntu-latest
+    environment: production # configure "required reviewers" on this environment for manual approval
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with: { role-to-assume: "${{ vars.AWS_DEPLOY_ROLE_ARN }}", aws-region: "${{ vars.AWS_REGION }}" }
+      - run: ./infra/scripts/run-migrations.sh production ${{ needs.build.outputs.image }}
+      - run: ./infra/scripts/deploy-service.sh production ${{ needs.build.outputs.image }}
+      - run: curl --fail --retry 10 --retry-delay 6 "${{ vars.PRODUCTION_URL }}/api/health"

@@ -1,0 +1,51 @@
+# Local / single-host deployment: PostgreSQL + web + worker.
+# Not verified in the original build environment (Docker was unavailable) — see docs/TEST-RESULTS.md.
+# Usage: cp .env.example .env (set APP_SECRET/ENCRYPTION_KEY) && docker compose up --build
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: omnihack
+      POSTGRES_PASSWORD: omnihack
+      POSTGRES_DB: omnihack
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U omnihack"]
+      interval: 5s
+      retries: 10
+
+  migrate:
+    build: .
+    command: ["node", "node_modules/prisma/build/index.js", "migrate", "deploy"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://omnihack:omnihack@db:5432/omnihack?schema=public
+    depends_on:
+      db: { condition: service_healthy }
+
+  web:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://omnihack:omnihack@db:5432/omnihack?schema=public
+      RUN_WORKER_IN_PROCESS: "false"
+      STORAGE_LOCAL_DIR: /data/storage
+    ports: ["3000:3000"]
+    volumes: [storage:/data/storage]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  worker:
+    build: .
+    command: ["node", "dist/worker.js"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://omnihack:omnihack@db:5432/omnihack?schema=public
+      STORAGE_LOCAL_DIR: /data/storage
+    volumes: [storage:/data/storage]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+volumes:
+  pgdata:
+  storage:

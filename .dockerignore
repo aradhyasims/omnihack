@@ -1,0 +1,14 @@
+node_modules
+.next
+.next-build
+.data
+storage
+backups
+dist
+coverage
+playwright-report
+test-results
+.env
+.env.*
+!.env.example
+*.log
