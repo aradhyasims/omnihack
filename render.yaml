@@ -9,13 +9,14 @@ services:
     region: singapore
     branch: main
     dockerfilePath: ./Dockerfile
-    # Free plan has no pre-deploy step: apply pending migrations, then start the server.
+    # Free plan has no pre-deploy step: the image's start.sh applies migrations when MIGRATE_ON_START=true.
     # The background worker runs inside the web process (src/instrumentation.ts).
-    dockerCommand: sh -c "node node_modules/prisma/build/index.js migrate deploy && node server.js"
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
+      - key: MIGRATE_ON_START
+        value: "true"
       - key: HOSTNAME
         value: 0.0.0.0
       - key: APP_URL

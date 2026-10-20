@@ -70,7 +70,7 @@ Steps:
 postgresql://omnihack_app.<project-ref>:<password>@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres?schema=omnihack&sslmode=require&connection_limit=5
 ```
 
-**Migrations** run on every start: `prisma migrate deploy && node server.js`. Migrations are expand-only, so this is safe.
+**Migrations** run on every start: `MIGRATE_ON_START=true` makes the image's `start.sh` run `prisma migrate deploy` before `node server.js`. Migrations are expand-only, so this is safe.
 
 **File storage.** Create S3 access keys in Supabase Dashboard → Storage → S3 Connection, then set these on Render:
 

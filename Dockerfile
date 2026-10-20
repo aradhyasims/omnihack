@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # Multi-stage build producing one image used for both the web app and the background worker.
-#   web:    docker run ... omnihack                      (default CMD)
+#   web:    docker run ... omnihack                      (default CMD; MIGRATE_ON_START=true to migrate first)
 #   worker: docker run ... omnihack node dist/worker.js
 #   migrations (one-off task before deploy): docker run ... omnihack npx prisma migrate deploy
 
@@ -29,7 +29,9 @@ COPY --from=build --chown=omnihack:omnihack /app/prisma ./prisma
 COPY --from=build --chown=omnihack:omnihack /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build --chown=omnihack:omnihack /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=build --chown=omnihack:omnihack /app/node_modules/prisma ./node_modules/prisma
+COPY --from=build --chown=omnihack:omnihack /app/scripts/start.sh ./start.sh
 USER omnihack
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s CMD node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-CMD ["node", "server.js"]
+# start.sh runs migrations first when MIGRATE_ON_START=true (e.g. Render), then `node server.js`.
+CMD ["sh", "./start.sh"]
