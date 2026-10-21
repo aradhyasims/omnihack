@@ -223,7 +223,8 @@ export async function impactStats() {
     db.candidateApplication.count({
       where: { status: { in: [...OFFER_STATUSES] }, offerType: { in: ["FULL_TIME", "PRE_PLACEMENT_OFFER", "CONTRACT"] }, competition: { isDemo: false } },
     }),
-    db.organization.count({ where: { type: "COMPANY", isDemo: false } }),
+    // OmniHack's own organization (slug "omnihack") is the platform, not a registered company.
+    db.organization.count({ where: { type: "COMPANY", isDemo: false, slug: { not: "omnihack" } } }),
     db.submission.count({ where: { status: "SUBMITTED", stage: { submissionTemplate: "IDEA" }, project: { competition: { isDemo: false } } } }),
   ]);
   return { ideathons, hackathons, students, institutions, mentors, internships, placements, companies, ideas };
