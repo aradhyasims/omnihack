@@ -4,7 +4,7 @@ import type { ActionState } from "@/lib/action-state";
 import { runAction } from "@/server/action";
 import { getCurrentUser } from "@/server/auth/current";
 import * as admin from "@/server/modules/admin/service";
-import { reviewPublication, setFeatured } from "@/server/modules/competitions/service";
+import { deleteCompetitionPermanently, reviewPublication, setFeatured } from "@/server/modules/competitions/service";
 
 export async function reviewPublicationAction(competitionId: string, approve: boolean, _: ActionState, fd: FormData): Promise<ActionState> {
   return runAction(async () => {
@@ -26,6 +26,12 @@ export async function verifyOrgAction(orgId: string, verified: boolean): Promise
 }
 export async function featureAction(competitionId: string, featured: boolean): Promise<ActionState> {
   return runAction(async () => setFeatured(await getCurrentUser(), competitionId, featured));
+}
+export async function deleteCompetitionAction(competitionId: string, _: ActionState, fd: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    const title = await deleteCompetitionPermanently(await getCurrentUser(), competitionId, String(fd.get("reason") ?? ""));
+    return `“${title}” was permanently deleted.`;
+  });
 }
 export async function inquiryStatusAction(id: string, status: "NEW" | "IN_PROGRESS" | "CLOSED"): Promise<ActionState> {
   return runAction(async () => admin.setInquiryStatus(await getCurrentUser(), id, status));

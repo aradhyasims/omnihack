@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { CompetitionStatus, Prisma } from "@prisma/client";
 import { db, type Tx } from "../../db";
 import { audit } from "../../audit";
-import { type Actor, isPlatformAdmin, requireActor, requireCompetitionPermission, requireOrgRole, requirePlatformAdmin } from "../../authz";
+import { type Actor, isPlatformAdmin, requireActor, requireCompetitionPermission, requireOrgRole, requirePlatformAdmin, requireSuperAdmin } from "../../authz";
 import { AppError, conflict, notFound, precondition, validation } from "../../errors";
 import { notify } from "../../notifications/notify";
 import { features } from "../../env";
@@ -740,6 +740,45 @@ export async function archiveCompetition(actor: Actor | null, competitionId: str
   await requireCompetitionPermission(actor, competitionId, "competition.archive");
   const c = await db.competition.findUniqueOrThrow({ where: { id: competitionId } });
   await db.$transaction((tx) => changeStatus(tx, competitionId, c.status, "ARCHIVED", actor!.id, undefined, { archivedAt: new Date() }));
+}
+
+/**
+ * Permanently delete a competition and everything that belongs to it (registrations, teams, projects,
+ * submissions, scores, results, certificates, hiring data) plus its uploaded files. Super admins only, and
+ * the exact title must be typed as confirmation. The audit entry survives because AuditLog has no foreign key.
+ */
+export async function deleteCompetitionPermanently(actor: Actor | null, competitionId: string, confirmTitle: string) {
+  const admin = requireSuperAdmin(actor);
+  const c = await db.competition.findUnique({
+    where: { id: competitionId },
+    include: { organization: { select: { id: true, name: true } }, _count: { select: { registrations: true, teams: true, projects: true, certificates: true } } },
+  });
+  if (!c) throw notFound("Competition");
+  if (confirmTitle.trim() !== c.title.trim())
+    throw validation("Type the competition name exactly to confirm.", { reason: `Type “${c.title}” to confirm.` });
+
+  const [attachments, consents] = await Promise.all([
+    db.attachment.findMany({ where: { submission: { project: { competitionId } } }, select: { storageKey: true } }),
+    db.talentConsent.findMany({ where: { competitionId, resumeKey: { not: null } }, select: { resumeKey: true } }),
+  ]);
+  const fileKeys = [c.bannerImageKey, c.logoImageKey, ...attachments.map((a) => a.storageKey), ...consents.map((t) => t.resumeKey)].filter(
+    (k): k is string => Boolean(k),
+  );
+
+  await db.competition.delete({ where: { id: competitionId } }); // child rows cascade
+  // Files go after the rows: a failed file delete leaves an orphan object, never a row pointing at a missing file.
+  const results = await Promise.allSettled(fileKeys.map((k) => storage().delete(k)));
+  const filesFailed = results.filter((r) => r.status === "rejected").length;
+  await audit({
+    actorId: admin.id,
+    action: "competition.deleted",
+    entityType: "Competition",
+    entityId: competitionId,
+    competitionId,
+    organizationId: c.organization.id,
+    meta: { title: c.title, slug: c.slug, organization: c.organization.name, status: c.status, ...c._count, files: fileKeys.length, filesFailed },
+  });
+  return c.title;
 }
 
 export async function setFeatured(actor: Actor | null, competitionId: string, featured: boolean) {

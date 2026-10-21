@@ -335,3 +335,42 @@ describe("Scenario 7 — results and certificates", () => {
     expect((await verifyCertificate(reissued.code))?.valid).toBe(false);
   });
 });
+
+describe("Master admin — permanent deletion of a fully used competition", () => {
+  it("only a super admin can delete, with the exact title; all event data and files go, the audit entry stays", async () => {
+    const superAdmin = await makeUser("master@test.example", { admin: true });
+    const plainAdmin = { ...(await makeUser("plainadmin@test.example")), platformRole: "ADMIN" as const };
+    await db.user.update({ where: { id: plainAdmin.id }, data: { platformRole: "ADMIN" } });
+    const orgId = (await db.competition.findUniqueOrThrow({ where: { id: cid } })).organizationId;
+    const fileKeys = (await db.attachment.findMany({ where: { submission: { project: { competitionId: cid } } } })).map((a) => a.storageKey);
+    expect(fileKeys.length).toBeGreaterThan(0);
+    expect(await db.certificate.count({ where: { competitionId: cid } })).toBeGreaterThan(0);
+
+    await expect(comp.deleteCompetitionPermanently(owner, cid, "Flood Hack")).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(comp.deleteCompetitionPermanently(plainAdmin, cid, "Flood Hack")).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(comp.deleteCompetitionPermanently(superAdmin, cid, "flood hack")).rejects.toMatchObject({ code: "VALIDATION" });
+    expect(await db.competition.count({ where: { id: cid } })).toBe(1);
+
+    expect(await comp.deleteCompetitionPermanently(superAdmin, cid, " Flood Hack ")).toBe("Flood Hack");
+
+    expect(await db.competition.count({ where: { id: cid } })).toBe(0);
+    for (const n of await Promise.all([
+      db.registration.count({ where: { competitionId: cid } }),
+      db.team.count({ where: { competitionId: cid } }),
+      db.project.count({ where: { competitionId: cid } }),
+      db.stage.count({ where: { competitionId: cid } }),
+      db.certificate.count({ where: { competitionId: cid } }),
+      db.prize.count({ where: { competitionId: cid } }),
+      db.attachment.count({ where: { storageKey: { in: fileKeys } } }),
+    ]))
+      expect(n).toBe(0);
+    for (const k of fileKeys) await expect(storage().get(k)).rejects.toThrow();
+    // People and the organization are untouched; the deletion is on the record.
+    expect(await db.user.count({ where: { id: { in: [owner.id, leaderA.id, j1.id] } } })).toBe(3);
+    expect(await db.organization.count({ where: { id: orgId } })).toBe(1);
+    const entry = await db.auditLog.findFirstOrThrow({ where: { action: "competition.deleted", entityId: cid } });
+    expect(entry.actorId).toBe(superAdmin.id);
+    expect(entry.meta).toMatchObject({ title: "Flood Hack", filesFailed: 0 });
+    await expect(comp.deleteCompetitionPermanently(superAdmin, cid, "Flood Hack")).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});
