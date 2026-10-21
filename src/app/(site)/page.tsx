@@ -13,6 +13,9 @@ import { listPublicOpenings } from "@/server/modules/talent/service";
 import { OpeningCard } from "@/components/talent/opening-card";
 import { TYPE_LABEL } from "@/lib/labels";
 import { mentorDomainOptions } from "@/server/modules/admin/service";
+import { homepageTestimonials } from "@/server/modules/content/testimonials";
+import { TestimonialCard } from "@/components/site/testimonial-card";
+import { LogoMarquee } from "@/components/site/logo-marquee";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +49,7 @@ export default async function HomePage() {
     // Not cached, so a domain a mentor just added under "Other" is offered to the next mentor right away.
     mentorDomainOptions(),
   ]);
+  const testimonials = await homepageTestimonials();
   const hasRealStats = stats.competitions > 0;
 
   return (
@@ -115,6 +119,15 @@ export default async function HomePage() {
             <MentorRegisterForm domains={mentorDomains.options} />
           </div>
         </div>
+      </section>
+
+      {/* Partners & supporters */}
+      <section className="border-b border-ink-100 bg-white py-14">
+        <div className="container-page mb-8 text-center">
+          <div className="eyebrow">Partners & supporters</div>
+          <h2 className="mt-2 text-2xl font-extrabold sm:text-3xl">Working with government, academia and industry</h2>
+        </div>
+        <LogoMarquee />
       </section>
 
       {/* Featured competitions */}
@@ -477,7 +490,23 @@ export default async function HomePage() {
         </section>
       ) : null}
 
-      {/* Testimonials are intentionally omitted until authorized testimonials exist. */}
+      {/* Testimonials: only published + featured ones, managed by the master admin (Admin → Testimonials). */}
+      {testimonials.length ? (
+        <section className="relative overflow-hidden bg-ink-950 py-20 text-white">
+          <div className="bg-grid absolute inset-0 opacity-50" aria-hidden />
+          <div className="container-page relative">
+            <div className="mb-10 max-w-2xl">
+              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-accent-300">What partners say</div>
+              <h2 className="mt-2 text-3xl font-extrabold text-white sm:text-[2.1rem]">Trusted by institutions and industry</h2>
+            </div>
+            <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+              {testimonials.map((t) => (
+                <TestimonialCard key={t.id} t={t} dark />
+              ))}
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       {/* FAQ */}
       <section className="bg-ink-50/60 py-20">

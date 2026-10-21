@@ -6,6 +6,8 @@ import { getCurrentUser } from "@/server/auth/current";
 import * as admin from "@/server/modules/admin/service";
 import { deleteCompetitionPermanently, reviewPublication, setFeatured } from "@/server/modules/competitions/service";
 import { reviewHostingFee, waiveHostingFee } from "@/server/modules/payments/service";
+import * as testimonials from "@/server/modules/content/testimonials";
+import { formToObject } from "@/server/validation";
 
 export async function reviewPublicationAction(competitionId: string, approve: boolean, _: ActionState, fd: FormData): Promise<ActionState> {
   return runAction(async () => {
@@ -44,6 +46,24 @@ export async function waiveHostingFeeAction(competitionId: string, _: ActionStat
   return runAction(async () => {
     await waiveHostingFee(await getCurrentUser(), competitionId, String(fd.get("reason") ?? ""));
     return "Hosting fee waived — the competition is enabled.";
+  });
+}
+export async function createTestimonialAction(_: ActionState, fd: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    await testimonials.createTestimonial(await getCurrentUser(), formToObject(fd));
+    return "Testimonial saved.";
+  });
+}
+export async function updateTestimonialAction(id: string, _: ActionState, fd: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    await testimonials.updateTestimonial(await getCurrentUser(), id, formToObject(fd));
+    return "Testimonial updated.";
+  });
+}
+export async function deleteTestimonialAction(id: string): Promise<ActionState> {
+  return runAction(async () => {
+    await testimonials.deleteTestimonial(await getCurrentUser(), id);
+    return "Testimonial deleted.";
   });
 }
 export async function inquiryStatusAction(id: string, status: "NEW" | "IN_PROGRESS" | "CLOSED"): Promise<ActionState> {

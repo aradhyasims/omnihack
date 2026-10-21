@@ -23,6 +23,8 @@ import {
   TYPE_LABEL,
 } from "@/lib/labels";
 import { formatDate, formatDateTime } from "@/lib/time";
+import { eventTestimonials } from "@/server/modules/content/testimonials";
+import { TestimonialCard } from "@/components/site/testimonial-card";
 
 type Params = { slug: string };
 
@@ -38,6 +40,27 @@ export async function generateMetadata({ params }: { params: Promise<Params> }):
     robots: c.visibility === "PUBLIC" ? undefined : { index: false, follow: false },
     openGraph: { title: c.title, description: c.tagline, type: "website", url: `/competitions/${c.slug}` },
   };
+}
+
+function DocumentLink({ href, name, label, className = "" }: { href: string; name: string | null; label: string; className?: string }) {
+  const pdf = /\.pdf$/i.test(href);
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener"
+      className={`flex items-center gap-3 rounded-xl border border-ink-100 px-4 py-3 transition hover:border-brand-300 hover:bg-brand-50/40 ${className}`}
+    >
+      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-600">
+        <Icon name="file" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-semibold text-ink-900">{label}</span>
+        <span className="block truncate text-xs text-ink-500">{name ?? (pdf ? "PDF" : "Image")}</span>
+      </span>
+      <span className="text-sm font-semibold text-brand-600">{pdf ? "Open PDF" : "View"} →</span>
+    </a>
+  );
 }
 
 function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
@@ -62,7 +85,7 @@ export default async function CompetitionDetailPage({ params }: { params: Promis
   const judgedStages = c.stages.filter((s) => s.isJudged && s.rubric?.criteria.length);
   const rules = (c.rules ?? {}) as Record<string, string>;
   const faqs = (c.faqs ?? []) as { q: string; a: string }[];
-  const openings = c.hiringEnabled ? await competitionOpenings(c.id) : [];
+  const [openings, testimonials] = await Promise.all([c.hiringEnabled ? competitionOpenings(c.id) : [], eventTestimonials(c.id)]);
   const keyDates: [string, Date | null][] = [
     ["Registration opens", c.registrationOpensAt],
     ["Registration closes", c.registrationClosesAt],
@@ -191,8 +214,32 @@ export default async function CompetitionDetailPage({ params }: { params: Promis
             </ul>
           </nav>
 
+          {c.reportKey || testimonials.length ? (
+            <Section id="report" title="Event report">
+              {c.reportKey ? <DocumentLink href={`/media/${c.reportKey}`} name={c.reportName} label="Final report" /> : null}
+              {testimonials.length ? (
+                <div className={`grid gap-4 sm:grid-cols-2 ${c.reportKey ? "mt-6" : ""}`}>
+                  {testimonials.map((t) => (
+                    <TestimonialCard key={t.id} t={t} />
+                  ))}
+                </div>
+              ) : null}
+            </Section>
+          ) : null}
+
           <Section id="overview" title="Overview">
             <div className="prose-om whitespace-pre-line">{c.description}</div>
+            {c.catalogKey ? (
+              <div className="mt-6">
+                {/\.(png|jpe?g)$/i.test(c.catalogKey) ? (
+                  <a href={`/media/${c.catalogKey}`} target="_blank" rel="noopener" className="block overflow-hidden rounded-2xl border border-ink-100">
+                    {/* eslint-disable-next-line @next/next/no-img-element -- organizer-uploaded catalog served by /media */}
+                    <img src={`/media/${c.catalogKey}`} alt={`${c.title} event catalog`} className="w-full" loading="lazy" />
+                  </a>
+                ) : null}
+                <DocumentLink href={`/media/${c.catalogKey}`} name={c.catalogName} label="Event catalog" className="mt-3" />
+              </div>
+            ) : null}
             {c.tags.length ? (
               <div className="mt-5 flex flex-wrap gap-1.5">
                 {c.tags.map((t) => (

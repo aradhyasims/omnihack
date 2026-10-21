@@ -31,7 +31,7 @@ class SmtpEmailProvider implements EmailProvider {
   constructor(private transporter: Transporter) {}
   async send(message: EmailMessage) {
     await this.transporter.sendMail({
-      from: process.env.EMAIL_FROM ?? `${brand.name} <no-reply@omnihack.example>`,
+      from: process.env.EMAIL_FROM ?? `${brand.name} <no-reply@omnihack.tech>`,
       to: message.to,
       subject: message.subject,
       text: message.text,

@@ -5,10 +5,10 @@ export const brand = {
   tagline: "Run ideathons and hackathons end to end",
   description: "OmniHack is a platform for discovering, organizing, judging and certifying ideathons, hackathons and innovation challenges.",
   contact: {
-    // Placeholder addresses: replace before production launch.
-    generalEmail: "hello@omnihack.example",
-    supportEmail: "support@omnihack.example",
-    privacyEmail: "privacy@omnihack.example",
+    // Official addresses on the company domain.
+    generalEmail: "hello@omnihack.tech",
+    supportEmail: "support@omnihack.tech",
+    privacyEmail: "privacy@omnihack.tech",
   },
   legal: {
     entityName: "OmniHack",

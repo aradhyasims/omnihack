@@ -214,6 +214,13 @@ model Competition {
   // Optional uploaded images (storage keys under the public/ prefix, served by /media/*)
   bannerImageKey   String?
   logoImageKey     String?
+  // Public event documents (storage keys under public/, served by /media/*): the event catalog/brochure
+  // (JPG/PNG/PDF, any time) and the final report (PDF/JPG/PNG, uploaded after the event ends).
+  catalogKey       String?
+  catalogName      String?
+  reportKey        String?
+  reportName       String?
+  reportUploadedAt DateTime?
   type             CompetitionType   @default(HACKATHON)
   mode             DeliveryMode      @default(ONLINE)
   category         String            @default("General")
@@ -325,6 +332,7 @@ model Competition {
   statusHistory  CompetitionStatusChange[]
   hostingFeePayments HostingFeePayment[]
   mentorInvites  MentorInvite[]
+  testimonials   Testimonial[]
 
   @@index([organizationId])
   @@index([status, visibility])
@@ -1267,6 +1275,37 @@ enum HostingFeeStatus {
   VERIFIED // OmniHack confirmed receipt and enabled the competition
   REJECTED // reported transfer could not be matched; organizer can resubmit
   WAIVED // fee waived by an OmniHack admin (e.g. OmniHack's own events)
+}
+
+enum TestimonialCategory {
+  INSTITUTION
+  COMPANY
+  RECRUITMENT // a company that hired through an OmniHack competition
+  PARTICIPANT
+  MENTOR
+  OTHER
+}
+
+// Testimonials are managed only by super admins (the OmniHack master admin). A testimonial linked to a
+// competition shows on that event's page; `featured` ones also show on the homepage. Drafts stay private.
+model Testimonial {
+  id            String              @id @default(cuid())
+  competitionId String?
+  competition   Competition?        @relation(fields: [competitionId], references: [id], onDelete: SetNull)
+  category      TestimonialCategory
+  quote         String
+  authorName    String
+  authorTitle   String?
+  organization  String
+  published     Boolean             @default(false)
+  featured      Boolean             @default(false)
+  sortOrder     Int                 @default(0)
+  createdById   String
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  @@index([published, featured, sortOrder])
+  @@index([competitionId])
 }
 
 // Organizer-reported bank transfers of the hosting fee to OmniHack's account (one row per attempt).

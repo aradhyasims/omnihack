@@ -22,6 +22,8 @@ import * as sponsors from "@/server/modules/sponsors/service";
 import * as talent from "@/server/modules/talent/service";
 import * as payments from "@/server/modules/payments/service";
 import { assignFromDirectory } from "@/server/modules/mentoring/directory";
+import { setEventDocument, type EventDocumentKind } from "@/server/modules/competitions/documents";
+import { submitEventTestimonial } from "@/server/modules/content/testimonials";
 
 const str = (fd: FormData, k: string) => String(fd.get(k) ?? "");
 const me = () => getCurrentUser();
@@ -211,6 +213,29 @@ export async function disqualifyAction(projectId: string, _: ActionState, fd: Fo
     return "Project disqualified.";
   });
 }
+// ── Event documents & testimonials ─────────────────────────────────────────────
+
+export async function uploadEventDocumentAction(id: string, kind: EventDocumentKind, _: ActionState, fd: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    const file = fd.get("file");
+    if (!(file instanceof File) || file.size === 0) throw validation("Choose a file to upload.", { file: "Choose a PDF, JPG or PNG file." });
+    await setEventDocument(await me(), id, kind, file);
+    return kind === "catalog" ? "Event catalog published on your event page." : "Final report published on your event page.";
+  });
+}
+export async function removeEventDocumentAction(id: string, kind: EventDocumentKind): Promise<ActionState> {
+  return runAction(async () => {
+    await setEventDocument(await me(), id, kind, null);
+    return "Removed.";
+  });
+}
+export async function submitEventTestimonialAction(id: string, _: ActionState, fd: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    await submitEventTestimonial(await me(), id, formToObject(fd));
+    return "Thanks — sent to OmniHack for review. It appears on your event page once published.";
+  });
+}
+
 // ── Payments & mentor directory ────────────────────────────────────────────────
 
 export async function submitHostingFeeAction(id: string, _: ActionState, fd: FormData): Promise<ActionState> {

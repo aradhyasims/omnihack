@@ -49,6 +49,26 @@
       transform: translateY(0);
     }
   }
+
+  /* Logo marquees: the track holds the logo list twice, so shifting by half loops seamlessly. */
+  --animate-marquee-left: marquee-left 60s linear infinite;
+  --animate-marquee-right: marquee-right 60s linear infinite;
+  @keyframes marquee-left {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(-50%);
+    }
+  }
+  @keyframes marquee-right {
+    from {
+      transform: translateX(-50%);
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
 }
 
 @layer base {

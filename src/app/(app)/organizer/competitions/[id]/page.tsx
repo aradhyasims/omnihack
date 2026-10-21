@@ -12,6 +12,8 @@ import { HOSTING_FEE } from "@/config/payments";
 import { BankDetails, TransferForm } from "@/components/payments/bank-transfer";
 import { archiveAction, cancelAction, publishAction, registrationClosedAction, submitHostingFeeAction, unpublishAction } from "../../actions";
 import { loadManaged } from "./load";
+import { EventDocumentsCard } from "./event-documents";
+import { eventHasEnded } from "@/server/modules/competitions/documents";
 
 export default async function ManageOverview({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -26,6 +28,7 @@ export default async function ManageOverview({ params }: { params: Promise<{ id:
     db.competitionStatusChange.findMany({ where: { competitionId: id }, orderBy: { createdAt: "desc" }, take: 8 }),
     db.hostingFeePayment.findFirst({ where: { competitionId: id }, orderBy: { createdAt: "desc" } }),
   ]);
+  const testimonials = can("competition.edit") ? await db.testimonial.findMany({ where: { competitionId: id }, orderBy: { createdAt: "desc" } }) : [];
   const enabled = isHostingEnabled(c);
   const issues = c.status === "DRAFT" ? await getPublishIssues(id) : [];
   const reg = registrationState(c, regs);
@@ -223,6 +226,8 @@ export default async function ManageOverview({ params }: { params: Promise<{ id:
           </ol>
         </Card>
       </div>
+
+      {can("competition.edit") ? <EventDocumentsCard c={c} ended={eventHasEnded(c)} testimonials={testimonials} /> : null}
 
       {history.length ? (
         <Card>

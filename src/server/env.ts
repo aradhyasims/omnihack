@@ -13,7 +13,7 @@ const schema = z.object({
     .default("false")
     .transform((v) => v === "true"),
   EMAIL_PROVIDER: z.enum(["console", "smtp"]).default("console"),
-  EMAIL_FROM: z.string().default("OmniHack <no-reply@omnihack.example>"),
+  EMAIL_FROM: z.string().default("OmniHack <no-reply@omnihack.tech>"),
   STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),
   STORAGE_LOCAL_DIR: z.string().default("./storage"),
   MAX_UPLOAD_MB: z.coerce.number().positive().default(25),
