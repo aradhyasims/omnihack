@@ -202,6 +202,33 @@ export async function platformStats() {
   return { competitions, participants, projects, certificates };
 }
 
+const OFFER_STATUSES = ["OFFERED", "OFFER_ACCEPTED", "OFFER_DECLINED"] as const;
+
+/**
+ * Homepage impact numbers, from real records only (demo data excluded).
+ * "Launched" means published at least once; Ideathon → Hackathon events count towards both formats.
+ * Offers count candidates who received an offer, by offer type.
+ */
+export async function impactStats() {
+  const live = { publishedAt: { not: null }, isDemo: false };
+  const [ideathons, hackathons, students, institutions, mentors, internships, placements, companies, ideas] = await Promise.all([
+    db.competition.count({ where: { ...live, type: { in: ["IDEATHON", "HYBRID"] } } }),
+    db.competition.count({ where: { ...live, type: { in: ["HACKATHON", "HYBRID"] } } }),
+    db.$queryRaw<{ n: bigint }[]>`
+      SELECT COUNT(DISTINCT r."userId") AS n FROM "Registration" r JOIN "Competition" c ON c.id = r."competitionId"
+      WHERE r."participantType" = 'STUDENT' AND r.status <> 'WITHDRAWN' AND c."isDemo" = false`.then((r) => Number(r[0]?.n ?? 0)),
+    db.organization.count({ where: { type: { in: ["UNIVERSITY", "COLLEGE", "SCHOOL"] }, isDemo: false } }),
+    db.mentorApplication.count({ where: { status: { in: ["NEW", "APPROVED"] } } }),
+    db.candidateApplication.count({ where: { status: { in: [...OFFER_STATUSES] }, offerType: "INTERNSHIP", competition: { isDemo: false } } }),
+    db.candidateApplication.count({
+      where: { status: { in: [...OFFER_STATUSES] }, offerType: { in: ["FULL_TIME", "PRE_PLACEMENT_OFFER", "CONTRACT"] }, competition: { isDemo: false } },
+    }),
+    db.organization.count({ where: { type: "COMPANY", isDemo: false } }),
+    db.submission.count({ where: { status: "SUBMITTED", stage: { submissionTemplate: "IDEA" }, project: { competition: { isDemo: false } } } }),
+  ]);
+  return { ideathons, hackathons, students, institutions, mentors, internships, placements, companies, ideas };
+}
+
 /**
  * Full detail for the public competition page. Drafts/private events are only visible to staff
  * (preview). Hidden challenges are filtered; REGISTERED challenges are shown to registrants and staff.

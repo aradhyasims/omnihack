@@ -5,7 +5,7 @@ import { CompetitionCard } from "@/components/competitions/competition-card";
 import { FaqList } from "@/components/site/faq-list";
 import { MentorRegisterForm } from "@/components/site/mentor-register-form";
 import { PLATFORM_FAQ } from "@/content/faq";
-import { featuredCompetitions, platformStats, publicCategories, upcomingDeadlines } from "@/server/modules/competitions/queries";
+import { featuredCompetitions, impactStats, platformStats, publicCategories, upcomingDeadlines } from "@/server/modules/competitions/queries";
 import { recentWinners } from "@/server/modules/results/service";
 import { relativeFromNow } from "@/lib/time";
 import { cached } from "@/server/cache";
@@ -49,7 +49,7 @@ export default async function HomePage() {
     // Not cached, so a domain a mentor just added under "Other" is offered to the next mentor right away.
     mentorDomainOptions(),
   ]);
-  const testimonials = await homepageTestimonials();
+  const [testimonials, impact] = await Promise.all([homepageTestimonials(), cached("home:impact", 60_000, impactStats)]);
   const hasRealStats = stats.competitions > 0;
 
   return (
@@ -118,6 +118,43 @@ export default async function HomePage() {
           <div className="animate-fade-up [animation-delay:120ms]">
             <MentorRegisterForm domains={mentorDomains.options} />
           </div>
+        </div>
+      </section>
+
+      {/* Impact — live counts from real (non-demo) records */}
+      <section aria-labelledby="impact-heading" className="bg-ink-50/60 py-14">
+        <div className="container-page">
+          <div className="mb-8 text-center">
+            <div className="eyebrow">Impact so far</div>
+            <h2 id="impact-heading" className="mt-2 text-2xl font-extrabold sm:text-3xl">
+              OmniHack in numbers
+            </h2>
+          </div>
+          <dl className="grid grid-cols-3 gap-2 sm:gap-4 lg:grid-cols-9">
+            {(
+              [
+                ["Ideathons launched", impact.ideathons, "idea"],
+                ["Hackathons launched", impact.hackathons, "code"],
+                ["Students registered", impact.students, "users"],
+                ["Institutions registered", impact.institutions, "home"],
+                ["Mentors registered", impact.mentors, "mentor"],
+                ["Internships offered", impact.internships, "briefcase"],
+                ["Placements offered", impact.placements, "trophy"],
+                ["Companies registered", impact.companies, "globe"],
+                ["Ideas received", impact.ideas, "spark"],
+              ] as const
+            ).map(([label, value, icon]) => (
+              <div key={label} className="card flex flex-col items-center px-1.5 py-4 text-center sm:px-3 sm:py-5">
+                <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand-50 text-brand-600 sm:h-10 sm:w-10">
+                  <Icon name={icon} className="h-5 w-5" />
+                </span>
+                <dt className="order-last mt-1 text-[11px] font-semibold leading-4 text-ink-600 sm:text-xs">{label}</dt>
+                <dd className="mt-2 font-display text-2xl font-extrabold tabular-nums text-ink-950 sm:mt-3 sm:text-3xl">
+                  {new Intl.NumberFormat("en-IN").format(value)}
+                </dd>
+              </div>
+            ))}
+          </dl>
         </div>
       </section>
 

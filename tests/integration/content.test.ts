@@ -56,6 +56,43 @@ describe("Event catalog and final report", () => {
   });
 });
 
+describe("Homepage impact numbers", () => {
+  it("count only real, launched records and ignore demo data and drafts", async () => {
+    const { impactStats } = await import("@/server/modules/competitions/queries");
+    const before = await impactStats();
+    const org = await db.organization.create({ data: { name: "Impact College", slug: "impact-college", type: "COLLEGE" } });
+    await db.organization.create({ data: { name: "Impact Co", slug: "impact-co", type: "COMPANY" } });
+    await db.organization.create({ data: { name: "Demo Co", slug: "demo-co", type: "COMPANY", isDemo: true } });
+    const mk = (title: string, type: "IDEATHON" | "HACKATHON" | "HYBRID", publishedAt: Date | null, isDemo = false) =>
+      db.competition.create({ data: { organizationId: org.id, createdById: owner.id, slug: title, title, type, publishedAt, isDemo, eligibilityTypes: ["OPEN"] } });
+    const hybrid = await mk("impact-hybrid", "HYBRID", new Date());
+    await mk("impact-ideathon", "IDEATHON", new Date());
+    await mk("impact-draft", "HACKATHON", null);
+    await mk("impact-demo", "HACKATHON", new Date(), true);
+    for (const [i, type] of (["STUDENT", "STUDENT", "PROFESSIONAL"] as const).entries()) {
+      const u = await makeUser(`impact-${i}@test.example`);
+      await db.registration.create({
+        data: { competitionId: hybrid.id, userId: u.id, participantType: type, rulesAcceptedAt: new Date(), checkInCode: `IMP-${i}`, status: i === 1 ? "WITHDRAWN" : "APPROVED" },
+      });
+    }
+    await db.mentorApplication.createMany({
+      data: [
+        { name: "M1", email: "m1@test.example", designation: "Eng", qualification: "BE", city: "X", country: "IN", linkedinUrl: "https://www.linkedin.com/in/m1" },
+        { name: "M2", email: "m2@test.example", designation: "Eng", qualification: "BE", city: "X", country: "IN", linkedinUrl: "https://www.linkedin.com/in/m2", status: "DECLINED" },
+      ],
+    });
+    const after = await impactStats();
+    expect({
+      ideathons: after.ideathons - before.ideathons,
+      hackathons: after.hackathons - before.hackathons,
+      students: after.students - before.students,
+      institutions: after.institutions - before.institutions,
+      companies: after.companies - before.companies,
+      mentors: after.mentors - before.mentors,
+    }).toEqual({ ideathons: 2, hackathons: 1, students: 1, institutions: 1, companies: 1, mentors: 1 });
+  });
+});
+
 describe("Testimonials — only the master admin manages them", () => {
   it("refuses organizers, plain admins and strangers", async () => {
     for (const who of [owner, admin, stranger])
