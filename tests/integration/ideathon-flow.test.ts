@@ -8,7 +8,7 @@ import { startSoloProject } from "@/server/modules/teams/service";
 import { saveSubmission } from "@/server/modules/submissions/service";
 import { transitionStage, upsertCriterion } from "@/server/modules/stages/service";
 import { applyAdvancementRule, assignJudges, getScorecard, saveEvaluation, stageJudgingOverview } from "@/server/modules/judging/service";
-import { days, local, makeUser, resetDb } from "../helpers";
+import { days, enableHosting, local, makeUser, resetDb } from "../helpers";
 
 let organizer: Actor, judge: Actor, alice: Actor, bob: Actor, outsider: Actor;
 let competitionId = "";
@@ -49,6 +49,7 @@ describe("Scenario 1 — organizer creates and publishes an ideathon", () => {
     await expect(comp.publishCompetition(organizer, competitionId)).rejects.toThrow(/issue/);
     const issues = await comp.getPublishIssues(competitionId);
     expect(issues.join(" ")).toMatch(/problem statement/);
+    expect(issues.join(" ")).toMatch(/hosting fee/);
   });
 
   it("configures basics, eligibility, dates and a problem statement, then publishes", async () => {
@@ -86,6 +87,8 @@ describe("Scenario 1 — organizer creates and publishes an ideathon", () => {
       visibility: "PUBLIC",
       referenceLinks: "",
     });
+    expect(await comp.getPublishIssues(competitionId)).toEqual([expect.stringMatching(/hosting fee/)]);
+    await enableHosting(competitionId);
     expect(await comp.getPublishIssues(competitionId)).toEqual([]);
     expect(await comp.publishCompetition(organizer, competitionId)).toBe("PUBLISHED");
     const history = await db.competitionStatusChange.findMany({ where: { competitionId } });

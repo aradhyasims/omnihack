@@ -10,9 +10,12 @@ import { requireUser } from "@/server/auth/current";
 import { participantWorkspace } from "@/server/modules/participants/service";
 import { competitionOpenings, getConsent } from "@/server/modules/talent/service";
 import { CareerCard } from "@/components/talent/career-card";
-import { DECISION_META, REGISTRATION_STATUS_META, STAGE_STATUS_META, TYPE_LABEL } from "@/lib/labels";
-import { formatDateTime, relativeFromNow } from "@/lib/time";
+import { DECISION_META, formatFee, PAYMENT_STATUS_META, REGISTRATION_STATUS_META, STAGE_STATUS_META, TYPE_LABEL } from "@/lib/labels";
+import { formatDate, formatDateTime, relativeFromNow } from "@/lib/time";
+import { db } from "@/server/db";
+import { BankDetails, TransferForm } from "@/components/payments/bank-transfer";
 import {
+  submitEntryFeeAction,
   createTeamAction,
   dissolveTeamAction,
   inviteAction,
@@ -66,6 +69,9 @@ export default async function WorkspacePage({
   const challenges = c.challenges.map((ch) => ({ value: ch.id, label: ch.title }));
   const maxMb = Number(process.env.MAX_UPLOAD_MB ?? 25);
   const [openings, consent] = c.hiringEnabled ? await Promise.all([competitionOpenings(c.id), getConsent(user.id, c.id)]) : [[], null];
+  const paymentDue =
+    c.isPaid && (reg.paymentStatus === "PENDING" || reg.paymentStatus === "FAILED") && reg.status !== "WITHDRAWN" && reg.status !== "REJECTED";
+  const lastPayment = paymentDue ? await db.payment.findFirst({ where: { registrationId: reg.id }, orderBy: { createdAt: "desc" } }) : null;
 
   return (
     <div className="space-y-8">
@@ -102,7 +108,50 @@ export default async function WorkspacePage({
             : "The organizer will review your registration. We'll email you when it's decided."}
         </Alert>
       ) : null}
-      {reg.status === "PENDING" ? (
+      {paymentDue ? (
+        <Card>
+          <CardHeader
+            title="Pay the entry fee"
+            description="Your place is confirmed once the organizer verifies your payment."
+            action={<Badge tone={PAYMENT_STATUS_META[reg.paymentStatus].tone}>{PAYMENT_STATUS_META[reg.paymentStatus].label}</Badge>}
+          />
+          <div className="space-y-4 p-5">
+            {lastPayment?.status === "PENDING" ? (
+              <p className="text-sm text-ink-700">
+                Payment details sent — UTR <strong className="font-mono">{lastPayment.providerRef}</strong>, paid on {formatDate(lastPayment.paidOn, "UTC")}. The
+                organizer will verify it against their account and you&apos;ll be notified.
+              </p>
+            ) : (
+              <>
+                {reg.paymentStatus === "FAILED" && lastPayment?.reviewNote ? (
+                  <Alert tone="danger" title={`The organizer couldn't confirm UTR ${lastPayment.providerRef}`}>
+                    {lastPayment.reviewNote}
+                  </Alert>
+                ) : null}
+                {c.payeeAccountNumber && c.payeeIfsc ? (
+                  <BankDetails
+                    amount={formatFee(c.isPaid, c.feeAmountMinor, c.currency)}
+                    accountName={c.payeeAccountName ?? ""}
+                    accountNumber={c.payeeAccountNumber}
+                    ifsc={c.payeeIfsc}
+                    bank={c.payeeBankName ?? ""}
+                    branch={c.payeeBranch}
+                    upiId={c.payeeUpiId}
+                  />
+                ) : (
+                  <Alert tone="warning" title="Payment details not available">
+                    The organizer hasn&apos;t added their account details. Contact them at {c.contactEmail}.
+                  </Alert>
+                )}
+                <div>
+                  <p className="mb-3 text-sm font-semibold text-ink-800">After paying, submit the transfer details:</p>
+                  <TransferForm action={submitEntryFeeAction.bind(null, c.id)} withNote={false} />
+                </div>
+              </>
+            )}
+          </div>
+        </Card>
+      ) : reg.status === "PENDING" ? (
         <Alert tone="warning" title="Awaiting organizer review">
           You'll be able to form a team and submit once your registration is approved.
         </Alert>

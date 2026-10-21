@@ -34,6 +34,7 @@ import { declareConflict, saveEvaluation } from "@/server/modules/judging/servic
 import { addMentorNote } from "@/server/modules/mentoring/service";
 import { deleteUserSessions } from "@/server/auth/session";
 import { giveConsent, respondToApplication, withdrawConsent } from "@/server/modules/talent/service";
+import { submitParticipantPayment } from "@/server/modules/payments/service";
 
 const str = (fd: FormData, k: string) => String(fd.get(k) ?? "");
 
@@ -47,6 +48,15 @@ export async function registerAction(competitionId: string, slug: string, _: Act
   });
   if (result.ok) redirect(`/dashboard/competitions/${slug}?registered=1`);
   return result;
+}
+
+export async function submitEntryFeeAction(competitionId: string, _: ActionState, fd: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    const user = await getCurrentUser();
+    rateLimit(`entry-fee:${user?.id}`, 10, 60 * 60_000);
+    await submitParticipantPayment(user, competitionId, formToObject(fd));
+    return "Payment details sent to the organizer. You'll be notified once they verify the transfer.";
+  });
 }
 
 export async function withdrawAction(competitionId: string, slug: string): Promise<ActionState> {

@@ -25,6 +25,15 @@ export default async function AdminHome() {
           tone={o.pending ? "warning" : undefined}
         />
         <Stat
+          label="Hosting fees to verify"
+          value={
+            <Link href="/admin/payments" className="hover:underline">
+              {o.hostingFees}
+            </Link>
+          }
+          tone={o.hostingFees ? "warning" : undefined}
+        />
+        <Stat
           label="New inquiries"
           value={
             <Link href="/admin/inquiries" className="hover:underline">

@@ -50,16 +50,17 @@ export default async function RegisterPage({ params }: { params: Promise<{ slug:
           </Link>
           .
         </Alert>
-      ) : c.isPaid ? (
-        <Alert tone="warning" title="Paid registration unavailable" className="mt-8">
-          This competition charges a registration fee, but online payments are not enabled on this platform yet. Please contact the organizer at{" "}
-          {c.contactEmail}.
-        </Alert>
       ) : (
         <ActionForm action={registerAction.bind(null, c.id, c.slug)} className="card mt-8 space-y-6 p-6 sm:p-8" refresh={false}>
           <p className="text-sm text-ink-600">
             Registering as <strong>{user.name}</strong> ({user.email}). We only ask for what this competition needs to check eligibility.
           </p>
+          {c.isPaid && c.feeAmountMinor > 0 ? (
+            <Alert tone="info" title={`Entry fee: ${formatFee(c.isPaid, c.feeAmountMinor, c.currency)}`}>
+              After you register, your workspace shows the organizer&apos;s bank account. Pay by bank transfer and submit the transaction reference; your place is
+              confirmed once the organizer verifies the payment.
+            </Alert>
+          ) : null}
           <div className="grid gap-5 sm:grid-cols-2">
             <Select
               label="I am a"

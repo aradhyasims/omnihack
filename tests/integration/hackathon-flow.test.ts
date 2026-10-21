@@ -15,7 +15,7 @@ import { renderCertificatePdf } from "@/server/modules/certificates/pdf";
 import { adminOverview, setUserStatus } from "@/server/modules/admin/service";
 import { exportCsv } from "@/server/modules/analytics/service";
 import { storage } from "@/server/storage";
-import { days, file, local, makeUser, PDF_BYTES, resetDb } from "../helpers";
+import { days, enableHosting, file, local, makeUser, PDF_BYTES, resetDb } from "../helpers";
 
 let owner: Actor, coordinator: Actor, j1: Actor, j2: Actor, j3: Actor;
 let leaderA: Actor, memberA: Actor, leaderB: Actor, memberB: Actor, stranger: Actor;
@@ -50,6 +50,7 @@ describe("Scenario 4 — organizer creates a hackathon with team rules and submi
     await comp.addOrgMember(owner, org.id, coordinator.email, "COORDINATOR");
     const c = await comp.createCompetitionDraft(coordinator, { organizationId: org.id, title: "Flood Hack", type: "HACKATHON" });
     cid = c.id;
+    await enableHosting(cid);
     await comp.updateBasics(coordinator, cid, {
       title: "Flood Hack",
       slug: "flood-hack-test",

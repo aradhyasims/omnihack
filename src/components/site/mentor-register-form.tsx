@@ -55,7 +55,9 @@ export function MentorRegisterForm({ domains }: { domains: DomainOption[] }) {
             <Link href="/mentorship" className="font-semibold text-brand-600 hover:underline">
               Mentorship page
             </Link>
-            . Your email, mobile number and other details stay private.
+
+            . Your qualification and city are also shown to organizers of verified competitions so they can invite you as a mentor or judge. Your email and
+            mobile number stay private.
 </p>
         </ActionForm>
       </div>

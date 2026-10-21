@@ -265,10 +265,22 @@ model Competition {
   rules            Json              @default("{}")
   faqs             Json              @default("[]")
 
-  // Payments (module disabled unless configured)
+  // Participation (entry) fee, paid by bank transfer straight to the organizer's account below;
+  // the organizer verifies each participant's transaction reference (Payment rows).
   isPaid           Boolean           @default(false)
   feeAmountMinor   Int               @default(0)
   currency         String            @default("INR")
+  payeeAccountName   String?
+  payeeAccountNumber String?
+  payeeIfsc          String?
+  payeeBankName      String?
+  payeeBranch        String?
+  payeeUpiId         String?
+
+  // Platform hosting fee (paid to OmniHack's company account). Until an admin verifies it (or waives
+  // it), the competition cannot be published and the organizer cannot add judges or mentors.
+  hostingFeeStatus      HostingFeeStatus @default(UNPAID)
+  hostingFeeAmountMinor Int              @default(1000000)
 
   // Results publication
   resultsStatus    ResultsStatus     @default(NONE)
@@ -311,6 +323,8 @@ model Competition {
   applications   CandidateApplication[]
   supportRequests SupportRequest[]
   statusHistory  CompetitionStatusChange[]
+  hostingFeePayments HostingFeePayment[]
+  mentorInvites  MentorInvite[]
 
   @@index([organizationId])
   @@index([status, visibility])
@@ -1230,14 +1244,68 @@ model Payment {
   id             String        @id @default(cuid())
   registrationId String
   registration   Registration  @relation(fields: [registrationId], references: [id], onDelete: Cascade)
-  provider       String
-  providerRef    String?       @unique
+  provider       String        // BANK_TRANSFER (participant pays the organizer and reports the UTR)
+  providerRef    String?       @unique // bank transaction reference (UTR) — unique so one transfer can't be reused
   amountMinor    Int
   currency       String
   status         PaymentStatus @default(PENDING)
   receiptNumber  String?       @unique
+  paidOn         DateTime?
+  payerName      String?
+  reviewedById   String?
+  reviewedAt     DateTime?
+  reviewNote     String?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
+
+  @@index([registrationId])
+}
+
+enum HostingFeeStatus {
+  UNPAID // nothing submitted yet
+  SUBMITTED // organizer reported a transfer; awaiting OmniHack verification
+  VERIFIED // OmniHack confirmed receipt and enabled the competition
+  REJECTED // reported transfer could not be matched; organizer can resubmit
+  WAIVED // fee waived by an OmniHack admin (e.g. OmniHack's own events)
+}
+
+// Organizer-reported bank transfers of the hosting fee to OmniHack's account (one row per attempt).
+model HostingFeePayment {
+  id            String      @id @default(cuid())
+  competitionId String
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  amountMinor   Int
+  utr           String      @unique
+  paidOn        DateTime
+  payerName     String
+  note          String?
+  status        String      @default("SUBMITTED") // SUBMITTED | VERIFIED | REJECTED
+  submittedById String
+  reviewedById  String?
+  reviewedAt    DateTime?
+  reviewNote    String?
+  createdAt     DateTime    @default(now())
+
+  @@index([status, createdAt])
+  @@index([competitionId])
+}
+
+// Organizer invitations to people from the mentor directory. Applied immediately when the mentor already
+// has an OmniHack account; otherwise applied when they create an account and verify the same email.
+model MentorInvite {
+  id                  String            @id @default(cuid())
+  competitionId       String
+  competition         Competition       @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  mentorApplicationId String
+  mentorApplication   MentorApplication @relation(fields: [mentorApplicationId], references: [id], onDelete: Cascade)
+  role                CompetitionRole // JUDGE | MENTOR
+  status              String            @default("PENDING") // PENDING | ACCEPTED | CANCELLED
+  invitedById         String
+  acceptedAt          DateTime?
+  createdAt           DateTime          @default(now())
+
+  @@unique([competitionId, mentorApplicationId, role])
+  @@index([mentorApplicationId, status])
 }
 
 model WebhookEvent {
@@ -1288,6 +1356,8 @@ model MentorApplication {
   domains       String[] @default([]) // built-in values (src/content/mentor-domains.ts) or MentorDomain.value
   status        String   @default("NEW") // NEW | APPROVED | DECLINED
   createdAt     DateTime @default(now())
+
+  invites MentorInvite[]
 
   @@index([status, createdAt])
   @@index([linkedinUrl])

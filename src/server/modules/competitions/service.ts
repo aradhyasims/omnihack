@@ -5,7 +5,6 @@ import { audit } from "../../audit";
 import { type Actor, isPlatformAdmin, requireActor, requireCompetitionPermission, requireOrgRole, requirePlatformAdmin, requireSuperAdmin } from "../../authz";
 import { AppError, conflict, notFound, precondition, validation } from "../../errors";
 import { notify } from "../../notifications/notify";
-import { features } from "../../env";
 import { checkbox, csvList, intWithDefault, optEmail, optInt, optText, optUrl, parse, reqText, zonedDate } from "../../validation";
 import { isValidTimeZone } from "@/lib/time";
 import { canTransition, DEFAULT_RULES, RULE_KEYS, slugify, validateDates } from "./lifecycle";
@@ -14,6 +13,8 @@ import { validateRubric } from "../judging/scoring";
 import { storage } from "../../storage";
 import { validateUpload } from "../../storage/validate";
 import { randomToken } from "../../crypto";
+import { formatInr, isHostingEnabled, payeeSchema, requireHostingEnabled } from "../payments/service";
+import { HOSTING_FEE } from "@/config/payments";
 
 // ── Organizations ────────────────────────────────────────────────────────────
 
@@ -108,6 +109,7 @@ export async function createCompetitionDraft(actor: Actor | null, input: unknown
         maxTeamSize: data.type === "IDEATHON" ? 3 : 4,
         contactEmail: a.email,
         contactName: a.name,
+        hostingFeeAmountMinor: HOSTING_FEE.amountMinor,
       },
     });
     await tx.competitionMember.create({ data: { competitionId: c.id, userId: a.id, role: "OWNER" } });
@@ -482,12 +484,16 @@ export async function updateRules(actor: Actor | null, competitionId: string, in
     }),
     { isPaid: raw.isPaid, feeAmount: raw.feeAmount, currency: raw.currency || "INR" },
   );
+  if (fee.isPaid && fee.feeAmount <= 0) throw validation("Enter the entry fee amount.", { feeAmount: "Required for a paid competition." });
+  // Participants pay the organizer directly, so a paid competition needs the account to pay into.
+  const payee = fee.isPaid ? parse(payeeSchema, raw) : null;
   return saveStep(actor!, competitionId, Math.max(c.wizardStep, 10), {
     rules,
     faqs,
     isPaid: fee.isPaid,
     feeAmountMinor: fee.isPaid ? Math.round(fee.feeAmount * 100) : 0,
     currency: fee.currency,
+    ...(payee ?? {}),
   });
 }
 
@@ -518,6 +524,7 @@ const staffSchema = z.object({
 export async function addStaff(actor: Actor | null, competitionId: string, input: unknown) {
   await requireCompetitionPermission(actor, competitionId, "staff.manage");
   const d = parse(staffSchema, input);
+  if (d.role === "JUDGE" || d.role === "MENTOR") await requireHostingEnabled(competitionId);
   const user = await db.user.findUnique({ where: { email: d.email } });
   if (!user || user.status !== "ACTIVE")
     throw validation("No active OmniHack account uses that email. Ask them to sign up first.", { email: "Account not found." });
@@ -620,8 +627,14 @@ export async function getPublishIssues(competitionId: string): Promise<string[]>
       issues.push(`Stage "${s.name}" needs a value for its advancement rule.`);
   }
   if (!c.stages.some((s) => s.acceptsSubmissions)) issues.push("At least one enabled stage must accept submissions (step 8).");
-  if (c.isPaid && !features.payments())
-    issues.push("Paid registration requires the payment module, which is not configured on this platform. Make the event free or configure payments.");
+  if (c.isPaid && (!c.feeAmountMinor || !c.payeeAccountName || !c.payeeAccountNumber || !c.payeeIfsc || !c.payeeBankName))
+    issues.push("Add the entry fee amount and the bank account participants should pay into (step 9).");
+  if (!isHostingEnabled(c))
+    issues.push(
+      c.hostingFeeStatus === "SUBMITTED"
+        ? "Hosting fee payment is awaiting verification by OmniHack."
+        : `Pay the ${formatInr(c.hostingFeeAmountMinor)} OmniHack hosting fee and submit the transaction reference (Overview → Hosting fee).`,
+    );
   return issues;
 }
 

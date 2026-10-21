@@ -7,7 +7,7 @@ import { getCompetitionPage } from "@/server/modules/competitions/queries";
 import { addSponsor, setPrizeSponsor, setSponsorConfirmed, sponsorWorkspace } from "@/server/modules/sponsors/service";
 import { registerForCompetition } from "@/server/modules/registrations/service";
 import { createTeam, listOpenTeams, requestToJoin, updateTeamDetails } from "@/server/modules/teams/service";
-import { days, local, makeUser, resetDb } from "../helpers";
+import { days, enableHosting, local, makeUser, resetDb } from "../helpers";
 
 let owner: Actor, rep: Actor, leader: Actor, seeker: Actor, outsider: Actor;
 let cid = "";
@@ -19,6 +19,7 @@ beforeAll(async () => {
   await db.organization.update({ where: { id: org.id }, data: { verified: true } });
   const c = await comp.createCompetitionDraft(owner, { organizationId: org.id, title: "Sponsored Hack", type: "HACKATHON" });
   cid = c.id;
+  await enableHosting(cid);
   await comp.updateBasics(owner, cid, {
     title: "Sponsored Hack",
     slug: "sponsored-hack",

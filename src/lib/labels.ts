@@ -48,6 +48,22 @@ export const REGISTRATION_STATUS_META: Record<string, { label: string; tone: Ton
   WITHDRAWN: { label: "Withdrawn", tone: "neutral" },
 };
 
+export const HOSTING_FEE_META: Record<string, { label: string; tone: Tone }> = {
+  UNPAID: { label: "Fee unpaid", tone: "warning" },
+  SUBMITTED: { label: "Verifying payment", tone: "info" },
+  VERIFIED: { label: "Paid · enabled", tone: "success" },
+  REJECTED: { label: "Payment not verified", tone: "danger" },
+  WAIVED: { label: "Fee waived · enabled", tone: "success" },
+};
+
+export const PAYMENT_STATUS_META: Record<string, { label: string; tone: Tone }> = {
+  NOT_REQUIRED: { label: "No fee", tone: "neutral" },
+  PENDING: { label: "Payment due", tone: "warning" },
+  PAID: { label: "Paid", tone: "success" },
+  FAILED: { label: "Payment not verified", tone: "danger" },
+  REFUNDED: { label: "Refunded", tone: "neutral" },
+};
+
 export const DECISION_META: Record<string, { label: string; tone: Tone }> = {
   PENDING: { label: "Pending", tone: "neutral" },
   ADVANCED: { label: "Advanced", tone: "success" },

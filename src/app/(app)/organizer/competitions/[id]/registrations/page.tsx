@@ -3,9 +3,11 @@ import { redirect } from "next/navigation";
 import { Badge, EmptyState, Icon } from "@/components/ui/primitives";
 import { ActionForm, Select, SubmitButton, TextInput } from "@/components/ui/form";
 import { listRegistrations } from "@/server/modules/registrations/service";
-import { REGISTRATION_STATUS_META } from "@/lib/labels";
+import { ConfirmAction } from "@/components/ui/confirm";
+import { PAYMENT_STATUS_META, REGISTRATION_STATUS_META } from "@/lib/labels";
 import { formatDate } from "@/lib/time";
-import { reviewRegistrationAction } from "../../../actions";
+import { formatInr } from "@/server/modules/payments/service";
+import { reviewEntryFeeAction, reviewRegistrationAction } from "../../../actions";
 import { loadManaged } from "../load";
 
 export default async function RegistrationsPage({
@@ -60,6 +62,7 @@ export default async function RegistrationsPage({
                 <th>Type / institution</th>
                 <th>Answers</th>
                 <th>Status</th>
+                {c.isPaid ? <th className="min-w-[220px]">Entry fee</th> : null}
                 <th>Registered</th>
                 <th className="min-w-[280px]">Decision</th>
               </tr>
@@ -91,6 +94,55 @@ export default async function RegistrationsPage({
                       <Badge tone={meta.tone}>{meta.label}</Badge>
                       {r.eligibilityNote ? <span className="mt-1 block text-xs">{r.eligibilityNote}</span> : null}
                     </td>
+                    {c.isPaid ? (
+                      <td className="text-xs">
+                        {(() => {
+                          const p = r.payments[0];
+                          const meta = PAYMENT_STATUS_META[r.paymentStatus];
+                          if (r.paymentStatus === "PENDING" && p?.status === "PENDING")
+                            return (
+                              <div className="space-y-2">
+                                <Badge tone="info">Verify payment</Badge>
+                                <p>
+                                  {formatInr(p.amountMinor, p.currency)} · UTR <span className="select-all font-mono font-semibold text-ink-900">{p.providerRef}</span>
+                                  <span className="block">
+                                    {formatDate(p.paidOn, "UTC")} · from {p.payerName}
+                                  </span>
+                                </p>
+                                <div className="flex flex-wrap gap-1.5">
+                                  <ConfirmAction
+                                    action={reviewEntryFeeAction.bind(null, p.id, true)}
+                                    label="Verify"
+                                    variant="primary"
+                                    confirmVariant="primary"
+                                    title={`Confirm ${formatInr(p.amountMinor, p.currency)} from ${p.payerName}?`}
+                                    description={`Only confirm after you see UTR ${p.providerRef} in your account statement.${c.requireRegistrationApproval ? "" : " The registration is approved automatically."}`}
+                                    confirmLabel="Payment received"
+                                  />
+                                  <ConfirmAction
+                                    action={reviewEntryFeeAction.bind(null, p.id, false)}
+                                    label="Not received"
+                                    variant="ghost"
+                                    title="Mark this payment as not received?"
+                                    reasonLabel="What should the participant check? (shown to them)"
+                                    reasonRequired
+                                    confirmLabel="Mark not received"
+                                  />
+                                </div>
+                              </div>
+                            );
+                          return (
+                            <>
+                              <Badge tone={r.paymentStatus === "PENDING" ? "warning" : meta.tone}>
+                                {r.paymentStatus === "PENDING" ? "Awaiting payment" : meta.label}
+                              </Badge>
+                              {p?.providerRef ? <span className="mt-1 block font-mono">UTR {p.providerRef}</span> : null}
+                              {r.paymentStatus === "FAILED" && p?.reviewNote ? <span className="mt-1 block">{p.reviewNote}</span> : null}
+                            </>
+                          );
+                        })()}
+                      </td>
+                    ) : null}
                     <td className="whitespace-nowrap text-xs">{formatDate(r.createdAt, c.timezone)}</td>
                     <td>
                       {r.status !== "WITHDRAWN" ? (

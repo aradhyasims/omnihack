@@ -13,18 +13,19 @@ import { BUILTIN_MENTOR_DOMAINS, OTHER_DOMAIN, slugifyDomain, type DomainOption 
 
 export async function adminOverview(actor: Actor | null) {
   requirePlatformAdmin(actor);
-  const [users, orgs, competitions, pending, inquiries, mentorApplications, failedEmails, failedJobs, queuedJobs] = await Promise.all([
+  const [users, orgs, competitions, pending, inquiries, mentorApplications, hostingFees, failedEmails, failedJobs, queuedJobs] = await Promise.all([
     db.user.count(),
     db.organization.count(),
     db.competition.groupBy({ by: ["status"], _count: { _all: true } }),
     db.competition.count({ where: { status: "PENDING_APPROVAL" } }),
     db.contactInquiry.count({ where: { status: "NEW" } }),
     db.mentorApplication.count({ where: { status: "NEW" } }),
+    db.hostingFeePayment.count({ where: { status: "SUBMITTED" } }),
     db.emailOutbox.count({ where: { status: "FAILED" } }),
     db.job.count({ where: { status: "FAILED" } }),
     db.job.count({ where: { status: "QUEUED" } }),
   ]);
-  return { users, orgs, competitions, pending, inquiries, mentorApplications, failedEmails, failedJobs, queuedJobs };
+  return { users, orgs, competitions, pending, inquiries, mentorApplications, hostingFees, failedEmails, failedJobs, queuedJobs };
 }
 
 export async function listUsers(actor: Actor | null, q?: string, page = 1) {

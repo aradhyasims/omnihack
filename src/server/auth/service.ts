@@ -79,6 +79,14 @@ export async function verifyEmail(token: string) {
   const record = await consumeToken(token, "EMAIL_VERIFY");
   await db.user.update({ where: { id: record.userId }, data: { emailVerifiedAt: new Date() } });
   await audit({ actorId: record.userId, action: "user.email_verified", entityType: "User", entityId: record.userId });
+  // Judge/mentor invitations from the mentor directory wait for a verified account with the invited email.
+  // Lazy import: the mentoring module depends on competition services that import auth helpers.
+  try {
+    const { applyPendingMentorInvites } = await import("../modules/mentoring/directory");
+    await applyPendingMentorInvites(record.userId);
+  } catch (e) {
+    console.error("Applying mentor invitations failed", e);
+  }
 }
 
 export type AuthResult = { ok: true; userId: string; mfaRequired: boolean } | { ok: false; reason: "invalid" | "inactive" };

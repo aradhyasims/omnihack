@@ -1,5 +1,7 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Badge, Card, CardHeader } from "@/components/ui/primitives";
+import { Alert, Badge, Card, CardHeader } from "@/components/ui/primitives";
+import { isHostingEnabled } from "@/server/modules/payments/service";
 import { ActionForm, Checkbox, Select, SubmitButton, TextInput } from "@/components/ui/form";
 import { ConfirmAction, InlineAction } from "@/components/ui/confirm";
 import { db } from "@/server/db";
@@ -19,7 +21,7 @@ const ROLE_LABEL: Record<string, string> = {
 
 export default async function PeoplePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { can } = await loadManaged(id);
+  const { competition: c, can } = await loadManaged(id);
   if (!can("staff.manage") && !can("mentor.assign")) redirect(`/organizer/competitions/${id}`);
   const [members, projects, mentorAssignments] = await Promise.all([
     db.competitionMember.findMany({
@@ -69,6 +71,21 @@ export default async function PeoplePage({ params }: { params: Promise<{ id: str
         {can("staff.manage") ? (
           <Card>
             <CardHeader title="Add a person" description="They need an OmniHack account. They'll be notified by email." />
+            {!isHostingEnabled(c) ? (
+              <Alert tone="warning" title="Judges and mentors unlock after the hosting fee" className="mx-5 mt-5">
+                You can add coordinators, volunteers and other staff now. To add judges or mentors,{" "}
+                <Link href={`/organizer/competitions/${id}#hosting-fee`} className="font-semibold underline">
+                  pay the hosting fee
+                </Link>
+                .
+              </Alert>
+            ) : (
+              <p className="px-5 pt-4 text-sm">
+                <Link href={`/organizer/competitions/${id}/mentors`} className="font-semibold text-brand-600 hover:underline">
+                  Browse the mentor & jury directory →
+                </Link>
+              </p>
+            )}
             <ActionForm action={addStaffAction.bind(null, id)} resetOnSuccess className="space-y-4 p-5">
               <TextInput label="Email" name="email" type="email" required />
               <Select label="Role" name="role" defaultValue="JUDGE" options={Object.entries(ROLE_LABEL).map(([value, label]) => ({ value, label }))} />

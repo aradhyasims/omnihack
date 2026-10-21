@@ -2,7 +2,6 @@ import { Badge, Card, CardHeader } from "@/components/ui/primitives";
 import { InlineAction } from "@/components/ui/confirm";
 import { requireAdminUser } from "@/server/auth/current";
 import { systemQueues } from "@/server/modules/admin/service";
-import { paymentStatus } from "@/server/modules/optional/payments";
 import { aiStatus } from "@/server/modules/optional/ai";
 import { formatDateTime } from "@/lib/time";
 import { retryEmailsAction } from "../actions";
@@ -34,7 +33,7 @@ export default async function SystemPage() {
         : "Not configured — uploads marked “not scanned”",
       process.env.MALWARE_SCANNER === "clamav" ? "success" : "warning",
     ],
-    ["Payments", paymentStatus().reason, "neutral"],
+    ["Payments", "Bank transfer with manual verification — hosting fees by OmniHack (Admin → Payments), entry fees by organizers", "neutral"],
     ["AI assistance", aiStatus().reason, "neutral"],
     [
       "Admin MFA enforcement",

@@ -17,7 +17,7 @@ import { startSoloProject } from "@/server/modules/teams/service";
 import { downloadBlockReason, saveSubmission } from "@/server/modules/submissions/service";
 import { transitionStage } from "@/server/modules/stages/service";
 import { storage } from "@/server/storage";
-import { days, file, local, makeUser, PDF_BYTES, resetDb } from "../helpers";
+import { days, enableHosting, file, local, makeUser, PDF_BYTES, resetDb } from "../helpers";
 
 const EICAR = "X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*";
 
@@ -172,6 +172,7 @@ describe("ClamAV scanning", () => {
     const org = await comp.createOrganization(owner, { name: "Scan Org", type: "COMPANY" });
     await db.organization.update({ where: { id: org.id }, data: { verified: true } });
     const c = await comp.createCompetitionDraft(owner, { organizationId: org.id, title: "Scan Ideathon", type: "IDEATHON" });
+    await enableHosting(c.id);
     await comp.updateBasics(owner, c.id, {
       title: "Scan Ideathon",
       slug: "scan-ideathon",

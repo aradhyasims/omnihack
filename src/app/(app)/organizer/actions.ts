@@ -20,6 +20,8 @@ import { assignMentor, unassignMentor } from "@/server/modules/mentoring/service
 import { moderateShowcase } from "@/server/modules/showcase/service";
 import * as sponsors from "@/server/modules/sponsors/service";
 import * as talent from "@/server/modules/talent/service";
+import * as payments from "@/server/modules/payments/service";
+import { assignFromDirectory } from "@/server/modules/mentoring/directory";
 
 const str = (fd: FormData, k: string) => String(fd.get(k) ?? "");
 const me = () => getCurrentUser();
@@ -209,6 +211,28 @@ export async function disqualifyAction(projectId: string, _: ActionState, fd: Fo
     return "Project disqualified.";
   });
 }
+// ── Payments & mentor directory ────────────────────────────────────────────────
+
+export async function submitHostingFeeAction(id: string, _: ActionState, fd: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    await payments.submitHostingFee(await me(), id, formToObject(fd));
+    return "Thanks — payment details sent to OmniHack. We'll enable the competition once the transfer is verified.";
+  });
+}
+export async function reviewEntryFeeAction(paymentId: string, approve: boolean, _: ActionState, fd: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    await payments.reviewParticipantPayment(await me(), paymentId, approve, str(fd, "reason"));
+    return approve ? "Payment verified." : "Payment marked as not received.";
+  });
+}
+export async function assignFromDirectoryAction(id: string, mentorApplicationId: string, role: "MENTOR" | "JUDGE"): Promise<ActionState> {
+  return runAction(async () => {
+    const r = await assignFromDirectory(await me(), id, mentorApplicationId, role);
+    const label = role === "JUDGE" ? "judge" : "mentor";
+    return r === "ASSIGNED" ? `Added as ${label} and notified.` : `Invitation sent. They become a ${label} once they create their OmniHack account.`;
+  });
+}
+
 export async function addStaffAction(id: string, _: ActionState, fd: FormData): Promise<ActionState> {
   return runAction(async () => {
     await comp.addStaff(await me(), id, formToObject(fd));

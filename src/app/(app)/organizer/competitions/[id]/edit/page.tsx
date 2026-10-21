@@ -513,13 +513,13 @@ export default async function WizardPage({
               <div className="grid gap-4 border-t border-ink-100 pt-5 sm:grid-cols-3">
                 <Checkbox
                   name="isPaid"
-                  label="Charge a registration fee"
+                  label="Charge a participation (entry) fee"
                   defaultChecked={c.isPaid}
                   className="sm:col-span-3"
-                  hint="Requires the payment module, which is not configured on this platform yet."
+                  hint="Participants pay your account directly by bank transfer and submit the transaction reference. You verify each payment on the Registrations tab; a registration is confirmed only after you verify it."
                 />
                 <TextInput
-                  label="Fee amount"
+                  label="Fee per participant"
                   name="feeAmount"
                   type="number"
                   step="0.01"
@@ -528,6 +528,18 @@ export default async function WizardPage({
                 />
                 <TextInput label="Currency" name="currency" defaultValue={c.currency} maxLength={3} />
               </div>
+              <fieldset className="grid gap-4 rounded-xl border border-ink-100 p-4 sm:grid-cols-2">
+                <legend className="px-1 text-sm font-bold">Account participants pay into (required for a paid competition)</legend>
+                <TextInput label="Account holder name" name="payeeAccountName" defaultValue={c.payeeAccountName ?? ""} autoComplete="off" />
+                <TextInput label="Account number" name="payeeAccountNumber" defaultValue={c.payeeAccountNumber ?? ""} inputMode="numeric" autoComplete="off" />
+                <TextInput label="IFSC code" name="payeeIfsc" defaultValue={c.payeeIfsc ?? ""} maxLength={11} autoComplete="off" />
+                <TextInput label="Bank name" name="payeeBankName" defaultValue={c.payeeBankName ?? ""} autoComplete="off" />
+                <TextInput label="Branch (optional)" name="payeeBranch" defaultValue={c.payeeBranch ?? ""} autoComplete="off" />
+                <TextInput label="UPI ID (optional)" name="payeeUpiId" defaultValue={c.payeeUpiId ?? ""} placeholder="name@bank" autoComplete="off" />
+                <p className="text-xs text-ink-500 sm:col-span-2">
+                  Shown only to people who have registered for this competition, on their payment step — never on the public page.
+                </p>
+              </fieldset>
               <StepActions step={9} />
             </ActionForm>
           </Card>

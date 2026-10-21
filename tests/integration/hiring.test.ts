@@ -6,7 +6,7 @@ import * as comp from "@/server/modules/competitions/service";
 import { registerForCompetition } from "@/server/modules/registrations/service";
 import { canViewProject } from "@/server/modules/submissions/service";
 import * as talent from "@/server/modules/talent/service";
-import { days, file, local, makeUser, PDF_BYTES, resetDb } from "../helpers";
+import { days, enableHosting, file, local, makeUser, PDF_BYTES, resetDb } from "../helpers";
 
 let owner: Actor, recruiter: Actor, rival: Actor, ops: Actor, alice: Actor, bob: Actor, carl: Actor, outsider: Actor;
 let cid = "";
@@ -21,6 +21,7 @@ beforeAll(async () => {
   await db.organization.update({ where: { id: org.id }, data: { verified: true } });
   const c = await comp.createCompetitionDraft(owner, { organizationId: org.id, title: "Hiring Hack", type: "HACKATHON" });
   cid = c.id;
+  await enableHosting(cid);
   await comp.updateBasics(owner, cid, {
     title: "Hiring Hack",
     slug: "hiring-hack",

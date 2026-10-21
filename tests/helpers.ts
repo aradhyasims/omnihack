@@ -27,6 +27,11 @@ export async function makeUser(email: string, opts: { admin?: boolean; verified?
   return { id: u.id, email: u.email, name: u.name, platformRole: u.platformRole, status: u.status, emailVerifiedAt: u.emailVerifiedAt };
 }
 
+/** Fixture shortcut: treat the OmniHack hosting fee as settled (payments.test.ts covers the real flow). */
+export async function enableHosting(competitionId: string) {
+  await db.competition.update({ where: { id: competitionId }, data: { hostingFeeStatus: "WAIVED" } });
+}
+
 export const days = (n: number) => new Date(Date.now() + n * 86_400_000);
 
 /** Format a Date as a datetime-local string in UTC (tests use timezone "UTC"). */

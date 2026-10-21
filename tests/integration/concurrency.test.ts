@@ -4,7 +4,7 @@ import { db } from "@/server/db";
 import * as comp from "@/server/modules/competitions/service";
 import { registerForCompetition } from "@/server/modules/registrations/service";
 import { createTeam, joinTeamByCode } from "@/server/modules/teams/service";
-import { days, local, makeUser, resetDb } from "../helpers";
+import { days, enableHosting, local, makeUser, resetDb } from "../helpers";
 
 let cid = "";
 
@@ -15,6 +15,7 @@ beforeAll(async () => {
   await db.organization.update({ where: { id: org.id }, data: { verified: true } });
   const c = await comp.createCompetitionDraft(owner, { organizationId: org.id, title: "Rush Hack", type: "HACKATHON" });
   cid = c.id;
+  await enableHosting(cid);
   await comp.updateBasics(owner, cid, {
     title: "Rush Hack",
     slug: "rush-hack",

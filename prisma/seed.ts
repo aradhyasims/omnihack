@@ -93,6 +93,7 @@ async function main() {
       data: {
         organizationId: org.id,
         createdById: organizer.id,
+        hostingFeeStatus: "WAIVED", // demo events are fully enabled
         tagline: "",
         description: "",
         eligibilityTypes: ["OPEN"],

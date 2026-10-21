@@ -108,12 +108,9 @@ export async function registerForCompetition(actor: Actor | null, competitionId:
         };
         throw precondition(messages[state] ?? "Registration is not available.");
       }
-      if (c.isPaid) {
-        throw new AppError(
-          "UNAVAILABLE",
-          "Online payment is not enabled on this platform yet, so paid registration cannot be completed. Please contact the organizer.",
-        );
-      }
+      const paid = c.isPaid && c.feeAmountMinor > 0;
+      if (paid && (!c.payeeAccountNumber || !c.payeeIfsc))
+        throw new AppError("UNAVAILABLE", "The organizer hasn't added payment details yet, so paid registration can't be completed. Please contact them.");
       const reasons = evaluateEligibility(c, d);
       if (reasons.length) throw validation(reasons.join(" "), { _eligibility: reasons.join(" ") });
       const { answers, errors } = validateCustomAnswers((c.customFields as CustomField[]) ?? [], raw);
@@ -121,16 +118,17 @@ export async function registerForCompetition(actor: Actor | null, competitionId:
       if (d.age != null) answers.__age = String(d.age);
       if (d.country) answers.__country = d.country;
 
-      const status = c.requireRegistrationApproval ? "PENDING" : "APPROVED";
+      // Paid registrations stay pending until the organizer verifies the entry-fee transfer.
+      const pending = c.requireRegistrationApproval || paid;
       const data = {
-        status,
-        eligibilityStatus: c.requireRegistrationApproval ? "PENDING" : "ELIGIBLE",
+        status: pending ? "PENDING" : "APPROVED",
+        eligibilityStatus: pending ? "PENDING" : "ELIGIBLE",
         participantType: d.participantType,
         institution: d.institution,
         answers: answers as Prisma.InputJsonValue,
         rulesAcceptedAt: new Date(),
         mediaConsent: d.mediaConsent,
-        paymentStatus: "NOT_REQUIRED",
+        paymentStatus: paid ? "PENDING" : "NOT_REQUIRED",
       } as const;
       const reg = existing
         ? await tx.registration.update({ where: { id: existing.id }, data: { ...data, eligibilityNote: null, reviewedAt: null, reviewedById: null } })
@@ -146,7 +144,9 @@ export async function registerForCompetition(actor: Actor | null, competitionId:
         body:
           registration.status === "APPROVED"
             ? `Your registration for ${competition.title} is confirmed. Next: ${competition.participationMode === "INDIVIDUAL" ? "start your project" : "create or join a team"} from your workspace.`
-            : `Your registration for ${competition.title} was received and is awaiting review by the organizer. We'll notify you when it's decided.`,
+            : registration.paymentStatus === "PENDING"
+              ? `Your registration for ${competition.title} is saved. Pay the entry fee to the organizer's account shown in your workspace and submit the transaction reference to confirm your place.`
+              : `Your registration for ${competition.title} was received and is awaiting review by the organizer. We'll notify you when it's decided.`,
         link: `/dashboard/competitions/${competition.slug}`,
         email: true,
         dedupeKey: `reg:${registration.id}:${registration.updatedAt.getTime()}`,
@@ -186,6 +186,8 @@ export async function reviewRegistration(actor: Actor | null, registrationId: st
   if (!reg) throw notFound("Registration");
   await requireCompetitionPermission(actor, reg.competitionId, "registration.review");
   if (reg.status === "WITHDRAWN") throw precondition("This participant withdrew.");
+  if (decision === "APPROVED" && reg.competition.isPaid && reg.paymentStatus !== "PAID")
+    throw precondition("Verify this participant's entry-fee payment before approving the registration.");
   if (decision === "REJECTED" && !note?.trim()) throw validation("Add a short reason; the participant will see it.", { note: "Required when rejecting." });
   await db.registration.update({
     where: { id: registrationId },
@@ -225,7 +227,7 @@ export async function listRegistrations(actor: Actor | null, competitionId: stri
       ...(filter.status ? { status: filter.status as never } : {}),
       ...(filter.q ? { user: { OR: [{ name: { contains: filter.q, mode: "insensitive" } }, { email: { contains: filter.q, mode: "insensitive" } }] } } : {}),
     },
-    include: { user: { select: { id: true, name: true, email: true } } },
+    include: { user: { select: { id: true, name: true, email: true } }, payments: { orderBy: { createdAt: "desc" }, take: 1 } },
     orderBy: { createdAt: "desc" },
     take: 500,
   });

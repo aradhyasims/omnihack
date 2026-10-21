@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { TabNav } from "@/components/app/tabs";
 import { Badge, DemoBadge } from "@/components/ui/primitives";
-import { COMPETITION_STATUS_META, TYPE_LABEL } from "@/lib/labels";
+import { COMPETITION_STATUS_META, HOSTING_FEE_META, TYPE_LABEL } from "@/lib/labels";
 import { loadManaged } from "./load";
 
 export default async function ManageLayout({ children, params }: { children: React.ReactNode; params: Promise<{ id: string }> }) {
@@ -14,6 +14,7 @@ export default async function ManageLayout({ children, params }: { children: Rea
     { href: "/registrations", label: "Registrations", show: can("registration.review") },
     { href: "/teams", label: "Teams & projects", show: can("team.manage") || can("submission.view_all") },
     { href: "/people", label: "People", show: can("staff.manage") || can("mentor.assign") },
+    { href: "/mentors", label: "Mentors & judges", show: can("staff.manage") },
     { href: "/judging", label: "Judging", show: can("judge.assign") || can("evaluation.view_all") },
     { href: "/results", label: "Results", show: can("results.prepare") || can("evaluation.view_all") },
     { href: "/certificates", label: "Certificates", show: can("certificate.issue") },
@@ -37,6 +38,7 @@ export default async function ManageLayout({ children, params }: { children: Rea
             {status.label}
           </Badge>
           <Badge>{TYPE_LABEL[c.type]}</Badge>
+          <Badge tone={HOSTING_FEE_META[c.hostingFeeStatus].tone}>{HOSTING_FEE_META[c.hostingFeeStatus].label}</Badge>
           {c.isDemo ? <DemoBadge /> : null}
         </div>
         <p className="mt-1 text-sm text-ink-500">

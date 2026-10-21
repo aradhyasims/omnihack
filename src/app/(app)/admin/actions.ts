@@ -5,6 +5,7 @@ import { runAction } from "@/server/action";
 import { getCurrentUser } from "@/server/auth/current";
 import * as admin from "@/server/modules/admin/service";
 import { deleteCompetitionPermanently, reviewPublication, setFeatured } from "@/server/modules/competitions/service";
+import { reviewHostingFee, waiveHostingFee } from "@/server/modules/payments/service";
 
 export async function reviewPublicationAction(competitionId: string, approve: boolean, _: ActionState, fd: FormData): Promise<ActionState> {
   return runAction(async () => {
@@ -31,6 +32,18 @@ export async function deleteCompetitionAction(competitionId: string, _: ActionSt
   return runAction(async () => {
     const title = await deleteCompetitionPermanently(await getCurrentUser(), competitionId, String(fd.get("reason") ?? ""));
     return `“${title}” was permanently deleted.`;
+  });
+}
+export async function reviewHostingFeeAction(paymentId: string, approve: boolean, _: ActionState, fd: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    await reviewHostingFee(await getCurrentUser(), paymentId, approve, String(fd.get("reason") ?? ""));
+    return approve ? "Payment verified — the competition is enabled." : "Payment rejected; the organizer was notified.";
+  });
+}
+export async function waiveHostingFeeAction(competitionId: string, _: ActionState, fd: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    await waiveHostingFee(await getCurrentUser(), competitionId, String(fd.get("reason") ?? ""));
+    return "Hosting fee waived — the competition is enabled.";
   });
 }
 export async function inquiryStatusAction(id: string, status: "NEW" | "IN_PROGRESS" | "CLOSED"): Promise<ActionState> {
