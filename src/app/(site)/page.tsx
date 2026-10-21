@@ -58,8 +58,8 @@ export default async function HomePage() {
       <section className="relative overflow-hidden bg-ink-950 text-white">
         <div className="bg-grid absolute inset-0 [mask-image:radial-gradient(ellipse_at_top,black_40%,transparent_75%)]" aria-hidden />
         <div className="absolute -top-40 left-1/2 h-[520px] w-[900px] -translate-x-1/2 rounded-full bg-brand-600/25 blur-[120px]" aria-hidden />
-        <div className="container-page relative grid items-center gap-14 py-20 lg:grid-cols-[1.15fr_1fr] lg:py-28">
-          <div className="animate-fade-up">
+        <div className="container-page relative grid items-start gap-14 py-20 lg:grid-cols-[1.15fr_1fr] lg:py-24">
+          <div className="animate-fade-up lg:sticky lg:top-24 lg:pt-10">
             <p className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-semibold text-ink-200">
               <span className="h-1.5 w-1.5 rounded-full bg-accent-400" /> Ideathons · Hackathons · Innovation challenges
             </p>
