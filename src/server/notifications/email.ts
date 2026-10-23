@@ -1,6 +1,7 @@
 // Email provider abstraction. Messages are first written to the EmailOutbox table (durable,
 // de-duplicated by dedupeKey) and delivered by the background worker with retries.
 import nodemailer, { type Transporter } from "nodemailer";
+import { SendEmailCommand, SESv2Client } from "@aws-sdk/client-sesv2";
 import { brand } from "@/config/brand";
 import { db } from "../db";
 
@@ -38,6 +39,37 @@ class SmtpEmailProvider implements EmailProvider {
       html: message.html,
     });
   }
+}
+
+/**
+ * Amazon SES API delivery. Credentials come from the standard AWS chain (ECS task role) — no SMTP password.
+ * Env: SES_REGION (falls back to AWS_REGION), SES_CONFIGURATION_SET (optional).
+ */
+export class SesEmailProvider implements EmailProvider {
+  readonly name = "ses";
+  constructor(private client: SESv2Client) {}
+  async send(message: EmailMessage) {
+    await this.client.send(
+      new SendEmailCommand({
+        FromEmailAddress: process.env.EMAIL_FROM ?? `${brand.name} <no-reply@omnihack.tech>`,
+        Destination: { ToAddresses: [message.to] },
+        Content: {
+          Simple: {
+            Subject: { Data: message.subject, Charset: "UTF-8" },
+            Body: { Text: { Data: message.text, Charset: "UTF-8" }, Html: { Data: message.html, Charset: "UTF-8" } },
+          },
+        },
+        ConfigurationSetName: process.env.SES_CONFIGURATION_SET || undefined,
+      }),
+    );
+  }
+}
+
+let sesClient: SESv2Client | null = null;
+
+function sesProvider(): EmailProvider {
+  sesClient ??= new SESv2Client({ region: process.env.SES_REGION ?? process.env.AWS_REGION ?? "us-east-1" });
+  return new SesEmailProvider(sesClient);
 }
 
 /** Fails loudly (messages end up FAILED in the outbox) instead of pretending to send. */
@@ -90,6 +122,7 @@ export function emailProvider(): EmailProvider {
   const name = process.env.EMAIL_PROVIDER ?? "console";
   if (name === "console") return new ConsoleEmailProvider();
   if (name === "smtp") return smtpProvider();
+  if (name === "ses") return sesProvider();
   return new UnconfiguredProvider(name, `Unknown EMAIL_PROVIDER "${name}"`);
 }
 

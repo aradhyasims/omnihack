@@ -1,0 +1,703 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  OmniHack lean AWS stack: VPC, RDS PostgreSQL 17 (private), S3 file storage, ECR + CodeBuild image
+  build, and an ECS Fargate web service (worker runs in-process) behind an internet-facing ALB that
+  terminates HTTPS for the custom domain with an ACM certificate. Deploy in two passes: first with
+  DesiredCount=0 to create the platform, then build the image with CodeBuild and update with
+  ImageTag and DesiredCount=1. See infra/cloudformation/README.md.
+
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+  com.aws.cloudformation.Context:
+    why: >-
+      Lean single-task deployment chosen for cost (~$45-70/month). Tasks run in public subnets with
+      public IPs to avoid NAT gateway cost; ingress is restricted to the ALB security group. The database
+      is in isolated subnets. CloudFront is not used because the account is not yet verified for
+      CloudFront; it can be put in front of the ALB later (with WAF) once AWS Support lifts that.
+    must:
+      - Keep RUN_WORKER_IN_PROCESS=true while DesiredCount is 1 (no separate worker service).
+      - Use STORAGE_DRIVER=s3 before raising DesiredCount above 1 (local disk is not shared).
+
+Parameters:
+  ImageTag:
+    Type: String
+    Default: none
+    Description: Tag of the image in this stack's ECR repository (pushed by the CodeBuild project).
+  DesiredCount:
+    Type: Number
+    Default: 0
+    AllowedValues: [0, 1]
+    Description: Web tasks to run. 0 until an image has been pushed. Above 1 requires a separate worker service.
+  DbInstanceClass:
+    Type: String
+    Default: db.t4g.micro
+  DomainName:
+    Type: String
+    Default: www.omnihack.tech
+    Description: Public host name; its DNS CNAME points at the LoadBalancerDnsName output.
+  EmailFromAddress:
+    Type: String
+    Default: no-reply@omnihack.tech
+    Description: Sender address; its domain must be a verified SES identity in this region.
+  CertificateArn:
+    Type: String
+    AllowedPattern: "arn:aws:acm:.*"
+    Description: Issued ACM certificate for DomainName in this region (DNS-validated outside the stack).
+
+Resources:
+  # ── Network ──────────────────────────────────────────────────────────────────
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.40.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags: [{ Key: Name, Value: !Ref AWS::StackName }]
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  GatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.40.0.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags: [{ Key: Name, Value: !Sub "${AWS::StackName}-public-a" }]
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.40.1.0/24
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags: [{ Key: Name, Value: !Sub "${AWS::StackName}-public-b" }]
+
+  DbSubnetA:
+    Type: AWS::EC2::Subnet
+    Metadata:
+      com.aws.cloudformation.Context:
+        must: [No route to the internet; database subnets stay isolated.]
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.40.10.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags: [{ Key: Name, Value: !Sub "${AWS::StackName}-db-a" }]
+
+  DbSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.40.11.0/24
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags: [{ Key: Name, Value: !Sub "${AWS::StackName}-db-b" }]
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetARoutes:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetBRoutes:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetB
+      RouteTableId: !Ref PublicRouteTable
+
+  DbRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+
+  DbSubnetARoutes:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref DbSubnetA
+      RouteTableId: !Ref DbRouteTable
+
+  DbSubnetBRoutes:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref DbSubnetB
+      RouteTableId: !Ref DbRouteTable
+
+  # ── Security groups ──────────────────────────────────────────────────────────
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: >-
+          Public website entry point, so 80/443 are open to the internet; 80 only redirects to HTTPS.
+          This is the only security group with internet ingress.
+        must: [Only ports 80 and 443.]
+    Properties:
+      GroupDescription: OmniHack ALB - public HTTPS (HTTP redirects)
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP redirect to HTTPS
+
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: OmniHack app tasks - port 3000 from the ALB only
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+          Description: ALB
+
+  DbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: OmniHack database - PostgreSQL from app tasks only
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref AppSecurityGroup
+          Description: App tasks
+
+  # ── Secrets (generated by Secrets Manager; values never appear in the template) ─
+  DbSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: OmniHack RDS master credentials
+      GenerateSecretString:
+        SecretStringTemplate: '{"username":"omnihack"}'
+        GenerateStringKey: password
+        PasswordLength: 32
+        # Alphanumeric only: the password is embedded in DATABASE_URL by scripts/start.sh.
+        ExcludePunctuation: true
+
+  AppSecret:
+    Type: AWS::SecretsManager::Secret
+    Metadata:
+      com.aws.cloudformation.Context:
+        must: [Rotating invalidates outstanding signed links.]
+    Properties:
+      Description: OmniHack APP_SECRET (signs file URLs, hashes IPs)
+      GenerateSecretString:
+        PasswordLength: 64
+        ExcludePunctuation: true
+
+  EncryptionKeySecret:
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: >-
+          43 alphanumeric characters are valid unpadded base64 and decode to exactly 32 bytes, which is
+          what src/server/crypto.ts requires for AES-256-GCM.
+        must: [Never rotate without re-encrypting MFA secrets; users would lose MFA.]
+    Properties:
+      Description: OmniHack ENCRYPTION_KEY (AES-256-GCM key for MFA secrets)
+      GenerateSecretString:
+        PasswordLength: 43
+        ExcludePunctuation: true
+
+  # ── Database ─────────────────────────────────────────────────────────────────
+  DbSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: OmniHack isolated database subnets
+      SubnetIds: [!Ref DbSubnetA, !Ref DbSubnetB]
+
+  Database:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Single-AZ micro instance for cost; 7-day backups give point-in-time recovery.
+        must: [Not publicly accessible.]
+    Properties:
+      Engine: postgres
+      EngineVersion: "17.9"
+      DBInstanceClass: !Ref DbInstanceClass
+      DBName: omnihack
+      MasterUsername: omnihack
+      MasterUserPassword: !Sub "{{resolve:secretsmanager:${DbSecret}:SecretString:password}}"
+      AllocatedStorage: "20"
+      MaxAllocatedStorage: 100
+      StorageType: gp3
+      StorageEncrypted: true
+      MultiAZ: false
+      PubliclyAccessible: false
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      VPCSecurityGroups: [!Ref DbSecurityGroup]
+      BackupRetentionPeriod: 7
+      DeletionProtection: true
+      AutoMinorVersionUpgrade: true
+      CopyTagsToSnapshot: true
+
+  # ── File storage ─────────────────────────────────────────────────────────────
+  FilesBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Private submissions storage; downloads go through the app and short-lived pre-signed URLs.
+        must: [Never public.]
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      VersioningConfiguration: { Status: Enabled }
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-old-versions
+            Status: Enabled
+            NoncurrentVersionExpiration: { NoncurrentDays: 30 }
+
+  FilesBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FilesBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource: [!GetAtt FilesBucket.Arn, !Sub "${FilesBucket.Arn}/*"]
+            Condition: { Bool: { aws:SecureTransport: "false" } }
+
+  # ── Image build (no local Docker needed) ─────────────────────────────────────
+  BuildBucket:
+    Type: AWS::S3::Bucket
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Holds source zips uploaded for CodeBuild; disposable.
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      VersioningConfiguration: { Status: Enabled }
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-sources
+            Status: Enabled
+            ExpirationInDays: 30
+            NoncurrentVersionExpiration: { NoncurrentDays: 7 }
+
+  BuildBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref BuildBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource: [!GetAtt BuildBucket.Arn, !Sub "${BuildBucket.Arn}/*"]
+            Condition: { Bool: { aws:SecureTransport: "false" } }
+
+  Repository:
+    Type: AWS::ECR::Repository
+    Properties:
+      ImageTagMutability: IMMUTABLE
+      ImageScanningConfiguration: { ScanOnPush: true }
+      EncryptionConfiguration: { EncryptionType: AES256 }
+      EmptyOnDelete: true
+      LifecyclePolicy:
+        LifecyclePolicyText: >-
+          {"rules":[{"rulePriority":1,"description":"Keep the 10 most recent images",
+          "selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":10},
+          "action":{"type":"expire"}}]}
+
+  BuildLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/codebuild/${AWS::StackName}"
+      RetentionInDays: 14
+
+  BuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: codebuild.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: { aws:SourceAccount: !Ref AWS::AccountId }
+      Policies:
+        - PolicyName: build
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub "${BuildLogGroup.Arn}"
+              - Effect: Allow
+                Action: [s3:GetObject, s3:GetObjectVersion]
+                Resource: !Sub "${BuildBucket.Arn}/source/*"
+              - Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+                  - ecr:PutImage
+                Resource: !GetAtt Repository.Arn
+
+  BuildProject:
+    Type: AWS::CodeBuild::Project
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: >-
+          Builds the repo Dockerfile in AWS. Base images are pulled from the ECR Public mirror of Docker
+          Hub official images to avoid Docker Hub anonymous rate limits on shared CodeBuild IPs.
+    Properties:
+      Description: Builds the OmniHack image from source/omnihack-src.zip and pushes it to ECR
+      ServiceRole: !GetAtt BuildRole.Arn
+      TimeoutInMinutes: 40
+      Source:
+        Type: S3
+        Location: !Sub "${BuildBucket}/source/omnihack-src.zip"
+        BuildSpec: |
+          version: 0.2
+          phases:
+            pre_build:
+              commands:
+                - test -n "$IMAGE_TAG"
+                - aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin "${REPOSITORY_URI%%/*}"
+                - sed -i -e '/^# syntax=/d' -e 's#^FROM node:#FROM public.ecr.aws/docker/library/node:#' Dockerfile
+            build:
+              commands:
+                - docker build -t "$REPOSITORY_URI:$IMAGE_TAG" .
+                - docker push "$REPOSITORY_URI:$IMAGE_TAG"
+      Artifacts: { Type: NO_ARTIFACTS }
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_MEDIUM
+        Image: aws/codebuild/amazonlinux-x86_64-standard:5.0
+        PrivilegedMode: true
+        EnvironmentVariables:
+          - Name: REPOSITORY_URI
+            Value: !GetAtt Repository.RepositoryUri
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+          GroupName: !Ref BuildLogGroup
+
+  # Fallback builder: a short-lived EC2 instance (self-terminating) that runs the same build when
+  # CodeBuild has no concurrency quota (new accounts start at 0). See README "Building without CodeBuild".
+  BuilderSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: OmniHack one-off image builder - outbound only
+      VpcId: !Ref Vpc
+
+  BuilderRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: build
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub "${BuildBucket.Arn}/source/*"
+              - Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+                  - ecr:PutImage
+                Resource: !GetAtt Repository.Arn
+
+  BuilderInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref BuilderRole]
+
+  # ── Application (ECS Fargate) ────────────────────────────────────────────────
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterSettings:
+        - Name: containerInsights
+          Value: disabled
+
+  AppLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/${AWS::StackName}"
+      RetentionInDays: 30
+
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: { aws:SourceAccount: !Ref AWS::AccountId }
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: read-app-secrets
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: [!Ref DbSecret, !Ref AppSecret, !Ref EncryptionKeySecret]
+
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: { aws:SourceAccount: !Ref AWS::AccountId }
+      Policies:
+        - PolicyName: files
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [s3:GetObject, s3:PutObject, s3:DeleteObject]
+                Resource: !Sub "${FilesBucket.Arn}/*"
+        - PolicyName: email
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # identity/* covers the sender domain plus, while SES is in the sandbox, the verified
+              # recipient identities; configuration-set/* covers the identity's default configuration set.
+              - Effect: Allow
+                Action: ses:SendEmail
+                Resource:
+                  - !Sub "arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/*"
+                  - !Sub "arn:aws:ses:${AWS::Region}:${AWS::AccountId}:configuration-set/*"
+                Condition:
+                  StringEquals: { ses:FromAddress: !Ref EmailFromAddress }
+
+  WebTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: >-
+          DATABASE_URL is assembled from DB_* variables in scripts/start.sh so the password is injected
+          from Secrets Manager rather than written into the task definition.
+    Properties:
+      Family: !Sub "${AWS::StackName}-web"
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode: awsvpc
+      Cpu: "512"
+      Memory: "1024"
+      RuntimePlatform: { CpuArchitecture: X86_64, OperatingSystemFamily: LINUX }
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: web
+          Image: !Sub "${Repository.RepositoryUri}:${ImageTag}"
+          Essential: true
+          PortMappings: [{ ContainerPort: 3000, Protocol: tcp }]
+          Environment:
+            - { Name: NODE_ENV, Value: production }
+            - { Name: APP_URL, Value: !Sub "https://${DomainName}" }
+            - { Name: MIGRATE_ON_START, Value: "true" }
+            - { Name: RUN_WORKER_IN_PROCESS, Value: "true" }
+            - { Name: REQUIRE_ADMIN_MFA, Value: "true" }
+            - { Name: EMAIL_PROVIDER, Value: ses }
+            - { Name: EMAIL_FROM, Value: !Sub "OmniHack <${EmailFromAddress}>" }
+            - { Name: SES_REGION, Value: !Ref AWS::Region }
+            - { Name: STORAGE_DRIVER, Value: s3 }
+            - { Name: S3_BUCKET, Value: !Ref FilesBucket }
+            - { Name: S3_REGION, Value: !Ref AWS::Region }
+            - { Name: S3_SSE, Value: AES256 }
+            - { Name: DB_HOST, Value: !GetAtt Database.Endpoint.Address }
+            - { Name: DB_PORT, Value: !GetAtt Database.Endpoint.Port }
+            - { Name: DB_NAME, Value: omnihack }
+            - { Name: DB_USER, Value: omnihack }
+          Secrets:
+            - { Name: DB_PASSWORD, ValueFrom: !Sub "${DbSecret}:password::" }
+            - { Name: APP_SECRET, ValueFrom: !Ref AppSecret }
+            - { Name: ENCRYPTION_KEY, ValueFrom: !Ref EncryptionKeySecret }
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref AppLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: web
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Type: application
+      Scheme: internet-facing
+      Subnets: [!Ref PublicSubnetA, !Ref PublicSubnetB]
+      SecurityGroups: [!Ref AlbSecurityGroup]
+      LoadBalancerAttributes:
+        - { Key: routing.http.drop_invalid_header_fields.enabled, Value: "true" }
+
+  WebTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref Vpc
+      Protocol: HTTP
+      Port: 3000
+      TargetType: ip
+      HealthCheckPath: /api/health
+      HealthCheckIntervalSeconds: 15
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 5
+      TargetGroupAttributes:
+        - { Key: deregistration_delay.timeout_seconds, Value: "30" }
+
+  HttpsListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Protocol: HTTPS
+      Port: 443
+      SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+      Certificates: [{ CertificateArn: !Ref CertificateArn }]
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref WebTargetGroup
+
+  HttpRedirectListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig: { Protocol: HTTPS, Port: "443", StatusCode: HTTP_301 }
+
+  WebService:
+    Type: AWS::ECS::Service
+    DependsOn: HttpsListener
+    Metadata:
+      com.aws.cloudformation.Context:
+        must: [DesiredCount above 1 requires a separate worker service and RUN_WORKER_IN_PROCESS=false.]
+    Properties:
+      ServiceName: web
+      Cluster: !Ref Cluster
+      TaskDefinition: !Ref WebTaskDefinition
+      DesiredCount: !Ref DesiredCount
+      LaunchType: FARGATE
+      HealthCheckGracePeriodSeconds: 300
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+        DeploymentCircuitBreaker: { Enable: true, Rollback: true }
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets: [!Ref PublicSubnetA, !Ref PublicSubnetB]
+          SecurityGroups: [!Ref AppSecurityGroup]
+      LoadBalancers:
+        - ContainerName: web
+          ContainerPort: 3000
+          TargetGroupArn: !Ref WebTargetGroup
+
+Outputs:
+  AppUrl:
+    Value: !Sub "https://${DomainName}"
+  LoadBalancerDnsName:
+    Description: CNAME target for DomainName
+    Value: !GetAtt LoadBalancer.DNSName
+  RepositoryUri:
+    Value: !GetAtt Repository.RepositoryUri
+  BuildProjectName:
+    Value: !Ref BuildProject
+  BuildBucketName:
+    Value: !Ref BuildBucket
+  FilesBucketName:
+    Value: !Ref FilesBucket
+  DatabaseEndpoint:
+    Value: !GetAtt Database.Endpoint.Address
+  ClusterName:
+    Value: !Ref Cluster
+  WebTaskDefinitionArn:
+    Value: !Ref WebTaskDefinition
+  AppSecurityGroupId:
+    Value: !Ref AppSecurityGroup
+  PublicSubnetIds:
+    Value: !Join [",", [!Ref PublicSubnetA, !Ref PublicSubnetB]]
+  BuilderInstanceProfileName:
+    Value: !Ref BuilderInstanceProfile
+  BuilderSecurityGroupId:
+    Value: !Ref BuilderSecurityGroup
