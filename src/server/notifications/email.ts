@@ -1,7 +1,6 @@
 // Email provider abstraction. Messages are first written to the EmailOutbox table (durable,
 // de-duplicated by dedupeKey) and delivered by the background worker with retries.
 import nodemailer, { type Transporter } from "nodemailer";
-import { SendEmailCommand, SESv2Client } from "@aws-sdk/client-sesv2";
 import { brand } from "@/config/brand";
 import { db } from "../db";
 
@@ -23,7 +22,7 @@ class ConsoleEmailProvider implements EmailProvider {
 }
 
 /**
- * SMTP delivery (works with any SMTP service, including Amazon SES's SMTP interface).
+ * SMTP delivery (works with any SMTP service, including Resend's SMTP interface).
  * Env: SMTP_HOST, SMTP_PORT (587), SMTP_SECURE ("true" for implicit TLS on 465), SMTP_USER, SMTP_PASS.
  * STARTTLS is required unless SMTP_ALLOW_INSECURE=true (local testing only).
  */
@@ -42,34 +41,39 @@ class SmtpEmailProvider implements EmailProvider {
 }
 
 /**
- * Amazon SES API delivery. Credentials come from the standard AWS chain (ECS task role) — no SMTP password.
- * Env: SES_REGION (falls back to AWS_REGION), SES_CONFIGURATION_SET (optional).
+ * Resend HTTP API delivery (https://resend.com/docs/api-reference/emails/send-email).
+ * Env: RESEND_API_KEY (required). The EMAIL_FROM domain must be verified in Resend.
  */
-export class SesEmailProvider implements EmailProvider {
-  readonly name = "ses";
-  constructor(private client: SESv2Client) {}
+export class ResendEmailProvider implements EmailProvider {
+  readonly name = "resend";
+  constructor(
+    private apiKey: string,
+    private fetchImpl: typeof fetch = fetch,
+  ) {}
   async send(message: EmailMessage) {
-    await this.client.send(
-      new SendEmailCommand({
-        FromEmailAddress: process.env.EMAIL_FROM ?? `${brand.name} <no-reply@omnihack.tech>`,
-        Destination: { ToAddresses: [message.to] },
-        Content: {
-          Simple: {
-            Subject: { Data: message.subject, Charset: "UTF-8" },
-            Body: { Text: { Data: message.text, Charset: "UTF-8" }, Html: { Data: message.html, Charset: "UTF-8" } },
-          },
-        },
-        ConfigurationSetName: process.env.SES_CONFIGURATION_SET || undefined,
+    const res = await this.fetchImpl("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${this.apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from: process.env.EMAIL_FROM ?? `${brand.name} <no-reply@omnihack.tech>`,
+        to: [message.to],
+        subject: message.subject,
+        text: message.text,
+        html: message.html,
       }),
-    );
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      throw new Error(`Resend API ${res.status}: ${detail}`.slice(0, 500));
+    }
   }
 }
 
-let sesClient: SESv2Client | null = null;
-
-function sesProvider(): EmailProvider {
-  sesClient ??= new SESv2Client({ region: process.env.SES_REGION ?? process.env.AWS_REGION ?? "us-east-1" });
-  return new SesEmailProvider(sesClient);
+function resendProvider(): EmailProvider {
+  const key = process.env.RESEND_API_KEY;
+  if (!key) return new UnconfiguredProvider("resend", "EMAIL_PROVIDER=resend but RESEND_API_KEY is not set");
+  return new ResendEmailProvider(key);
 }
 
 /** Fails loudly (messages end up FAILED in the outbox) instead of pretending to send. */
@@ -122,7 +126,7 @@ export function emailProvider(): EmailProvider {
   const name = process.env.EMAIL_PROVIDER ?? "console";
   if (name === "console") return new ConsoleEmailProvider();
   if (name === "smtp") return smtpProvider();
-  if (name === "ses") return sesProvider();
+  if (name === "resend") return resendProvider();
   return new UnconfiguredProvider(name, `Unknown EMAIL_PROVIDER "${name}"`);
 }
 

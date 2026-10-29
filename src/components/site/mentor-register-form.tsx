@@ -33,14 +33,7 @@ export function MentorRegisterForm({ domains }: { domains: DomainOption[] }) {
             <TextInput label="Country" name="country" required autoComplete="country-name" />
           </div>
           <MentorDomainPicker options={domains} />
-          <TextInput
-            label="LinkedIn profile URL"
-            name="linkedinUrl"
-            type="url"
-            inputMode="url"
-            required
-            placeholder="https://www.linkedin.com/in/your-name"
-          />
+          <TextInput label="LinkedIn profile URL" name="linkedinUrl" type="url" inputMode="url" required placeholder="https://www.linkedin.com/in/your-name" />
           {/* Honeypot field for bots — hidden from people and assistive tech */}
           <div className="hidden" aria-hidden>
             <label>
@@ -55,10 +48,9 @@ export function MentorRegisterForm({ domains }: { domains: DomainOption[] }) {
             <Link href="/mentorship" className="font-semibold text-brand-600 hover:underline">
               Mentorship page
             </Link>
-
             . Your qualification and city are also shown to organizers of verified competitions so they can invite you as a mentor or judge. Your email and
             mobile number stay private.
-</p>
+          </p>
         </ActionForm>
       </div>
     </div>

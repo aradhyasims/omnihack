@@ -6,23 +6,23 @@ See the README quick start. On Windows without Node on PATH, prefix commands wit
 
 ## 2. Environment variables
 
-| Variable                                       | Required     | Description                                                                                                                                                                        |
-| ---------------------------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `NODE_ENV`                                     | yes          | `development` \| `test` \| `production`                                                                                                                                            |
-| `APP_URL`                                      | yes          | Public base URL (canonical URLs, emails, QR codes, sitemap)                                                                                                                        |
-| `DATABASE_URL`                                 | yes          | PostgreSQL connection string (production: `sslmode=require`)                                                                                                                       |
-| `APP_SECRET`                                   | yes          | ≥32 random characters; signs file URLs and hashes IPs. Production refuses the development value. Rotating it invalidates outstanding signed links.                                 |
-| `ENCRYPTION_KEY`                               | for MFA      | 32 bytes, base64; AES-256-GCM key for MFA secrets. **Do not rotate without re-encrypting** (users would have to set up MFA again).                                                 |
-| `SESSION_TTL_HOURS` / `SESSION_MAX_DAYS`       | no           | Sliding and absolute session lifetime (12 / 14)                                                                                                                                    |
-| `REQUIRE_ADMIN_MFA`                            | prod: `true` | Enforce MFA for platform admins                                                                                                                                                    |
-| `EMAIL_PROVIDER` / `EMAIL_FROM`                | yes          | `console` (development), `ses` (Amazon SES API with task-role credentials; `SES_REGION`, optional `SES_CONFIGURATION_SET`), or `smtp` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`). STARTTLS is required for SMTP. |
-| `STORAGE_DRIVER` / `STORAGE_LOCAL_DIR`         | yes          | `local` (a private directory; mount a persistent volume) or `s3` (`S3_BUCKET`, `S3_REGION`, `S3_SSE`, optional `S3_KMS_KEY_ID`/`S3_ENDPOINT`; credentials from the ECS task role). |
-| `MAX_UPLOAD_MB`                                | no           | Per-file upload limit (default 25)                                                                                                                                                 |
-| `MALWARE_SCANNER`                              | no           | `none` (files are labelled "not scanned") or `clamav` (`CLAMAV_HOST`, `CLAMAV_PORT`; files are blocked until scanned clean)                                                        |
-| `PAYMENTS_PROVIDER`, `PAYMENTS_WEBHOOK_SECRET` | no           | Payments stay disabled unless both are set **and** an adapter exists                                                                                                               |
-| `AI_PROVIDER`, `AI_API_KEY`                    | no           | AI stays disabled unless configured **and** an adapter exists                                                                                                                      |
-| `RUN_WORKER_IN_PROCESS`                        | no           | `true` (default) runs the worker inside the web process; set `false` when running the worker container                                                                             |
-| `SEED_ADMIN_PASSWORD`                          | dev only     | Password for demo accounts                                                                                                                                                         |
+| Variable                                       | Required     | Description                                                                                                                                                                                                            |
+| ---------------------------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NODE_ENV`                                     | yes          | `development` \| `test` \| `production`                                                                                                                                                                                |
+| `APP_URL`                                      | yes          | Public base URL (canonical URLs, emails, QR codes, sitemap)                                                                                                                                                            |
+| `DATABASE_URL`                                 | yes          | PostgreSQL connection string (production: `sslmode=require`)                                                                                                                                                           |
+| `APP_SECRET`                                   | yes          | ≥32 random characters; signs file URLs and hashes IPs. Production refuses the development value. Rotating it invalidates outstanding signed links.                                                                     |
+| `ENCRYPTION_KEY`                               | for MFA      | 32 bytes, base64; AES-256-GCM key for MFA secrets. **Do not rotate without re-encrypting** (users would have to set up MFA again).                                                                                     |
+| `SESSION_TTL_HOURS` / `SESSION_MAX_DAYS`       | no           | Sliding and absolute session lifetime (12 / 14)                                                                                                                                                                        |
+| `REQUIRE_ADMIN_MFA`                            | prod: `true` | Enforce MFA for platform admins                                                                                                                                                                                        |
+| `EMAIL_PROVIDER` / `EMAIL_FROM`                | yes          | `console` (development), `resend` (Resend HTTP API; `RESEND_API_KEY`, sender domain verified in Resend), or `smtp` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`). STARTTLS is required for SMTP. |
+| `STORAGE_DRIVER` / `STORAGE_LOCAL_DIR`         | yes          | `local` (a private directory; mount a persistent volume) or `s3` (`S3_BUCKET`, `S3_REGION`, `S3_SSE`, optional `S3_KMS_KEY_ID`/`S3_ENDPOINT`; credentials from the ECS task role).                                     |
+| `MAX_UPLOAD_MB`                                | no           | Per-file upload limit (default 25)                                                                                                                                                                                     |
+| `MALWARE_SCANNER`                              | no           | `none` (files are labelled "not scanned") or `clamav` (`CLAMAV_HOST`, `CLAMAV_PORT`; files are blocked until scanned clean)                                                                                            |
+| `PAYMENTS_PROVIDER`, `PAYMENTS_WEBHOOK_SECRET` | no           | Payments stay disabled unless both are set **and** an adapter exists                                                                                                                                                   |
+| `AI_PROVIDER`, `AI_API_KEY`                    | no           | AI stays disabled unless configured **and** an adapter exists                                                                                                                                                          |
+| `RUN_WORKER_IN_PROCESS`                        | no           | `true` (default) runs the worker inside the web process; set `false` when running the worker container                                                                                                                 |
+| `SEED_ADMIN_PASSWORD`                          | dev only     | Password for demo accounts                                                                                                                                                                                             |
 
 ## 3. Database migrations
 
@@ -53,7 +53,7 @@ Steps:
 4. Configure GitHub: an OIDC deploy role (`AWS_DEPLOY_ROLE_ARN`), `AWS_REGION`, and staging/production URLs; add required reviewers to the `production` environment (manual approval gate).
 5. Tag a release (`v1.2.3`): `.github/workflows/deploy.yml` builds and pushes the image, runs migrations as a one-off ECS task, deploys staging, smoke-tests `/api/health`, waits for approval, then deploys production.
 
-**Before production:** set `STORAGE_DRIVER=s3` (required with multiple web tasks, since local disk is not shared), `EMAIL_PROVIDER=smtp` with SES SMTP credentials, and `MALWARE_SCANNER=clamav` with a clamd sidecar; enable `REQUIRE_ADMIN_MFA`; and complete a security review. Optional `RETENTION_*_DAYS` variables tune the daily purge.
+**Before production:** set `STORAGE_DRIVER=s3` (required with multiple web tasks, since local disk is not shared), `EMAIL_PROVIDER=resend` with `RESEND_API_KEY`, and `MALWARE_SCANNER=clamav` with a clamd sidecar; enable `REQUIRE_ADMIN_MFA`; and complete a security review. Optional `RETENTION_*_DAYS` variables tune the daily purge.
 
 ## 6. Low-cost hosting: Render + Supabase (current live setup)
 
@@ -88,7 +88,7 @@ AWS_SECRET_ACCESS_KEY=…
 
 Until then, uploads use local disk. That disk is wiped whenever Render restarts or redeploys the service.
 
-**Email.** Set `EMAIL_PROVIDER=smtp` and the `SMTP_*` settings (for example Brevo, Resend, SendGrid, or Gmail with an app password). Otherwise verification and notification emails are only written to the Render logs.
+**Email.** The Blueprint sets `EMAIL_PROVIDER=resend`; add `RESEND_API_KEY` (a Resend "sending access" key) in the Render dashboard. The `omnihack.tech` domain must be verified in Resend. Otherwise verification and notification emails are only written to the Render logs.
 
 **Free-plan limits:**
 

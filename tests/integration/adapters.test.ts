@@ -6,8 +6,7 @@ import { SMTPServer } from "smtp-server";
 import { mockClient } from "aws-sdk-client-mock";
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { db } from "@/server/db";
-import { SendEmailCommand, SESv2Client } from "@aws-sdk/client-sesv2";
-import { drainOutbox, queueEmail, SesEmailProvider, setEmailProviderForTesting } from "@/server/notifications/email";
+import { drainOutbox, queueEmail, ResendEmailProvider, setEmailProviderForTesting } from "@/server/notifications/email";
 import { createS3Driver } from "@/server/storage";
 import { ClamdScanner } from "@/server/storage/scanner";
 import { runDueJobs } from "@/server/jobs/queue";
@@ -123,27 +122,35 @@ describe("SMTP email adapter", () => {
   });
 });
 
-describe("SES email adapter", () => {
-  it("sends queued email through the SES API and marks it SENT", async () => {
+describe("Resend email adapter", () => {
+  it("sends queued email through the Resend API and marks it SENT", async () => {
     await db.emailOutbox.deleteMany({ where: { status: "QUEUED" } }); // e.g. the retrying "not configured" message above
-    const ses = mockClient(SESv2Client);
-    ses.on(SendEmailCommand).resolves({ MessageId: "m-1" });
-    Object.assign(process.env, { EMAIL_FROM: "OmniHack <no-reply@test.example>", SES_CONFIGURATION_SET: "omnihack-events" });
-    setEmailProviderForTesting(new SesEmailProvider(new SESv2Client({ region: "us-east-1", credentials: { accessKeyId: "test", secretAccessKey: "test" } })));
-    await queueEmail({ to: "ses-user@test.example", subject: "SES check", body: "Hello over SES", ctaUrl: "/dashboard", dedupeKey: "ses-1" });
+    const calls: { url: string; init: RequestInit }[] = [];
+    const fakeFetch = (async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ id: "m-1" }), { status: 200 });
+    }) as unknown as typeof fetch;
+    process.env.EMAIL_FROM = "OmniHack <no-reply@test.example>";
+    setEmailProviderForTesting(new ResendEmailProvider("re_test", fakeFetch));
+    await queueEmail({ to: "resend-user@test.example", subject: "Resend check", body: "Hello over Resend", ctaUrl: "/dashboard", dedupeKey: "resend-1" });
     expect(await drainOutbox()).toEqual({ sent: 1, failed: 0 });
-    const input = ses.commandCalls(SendEmailCommand)[0].args[0].input;
-    expect(input).toMatchObject({
-      FromEmailAddress: "OmniHack <no-reply@test.example>",
-      Destination: { ToAddresses: ["ses-user@test.example"] },
-      ConfigurationSetName: "omnihack-events",
-    });
-    expect(input.Content?.Simple?.Subject?.Data).toMatch(/SES check/);
-    expect(input.Content?.Simple?.Body?.Text?.Data).toContain("http://localhost:3000/dashboard");
-    const row = await db.emailOutbox.findUniqueOrThrow({ where: { dedupeKey: "ses-1" } });
-    expect(row).toMatchObject({ status: "SENT", provider: "ses" });
-    delete process.env.SES_CONFIGURATION_SET;
-    ses.restore();
+    expect(calls[0].url).toBe("https://api.resend.com/emails");
+    expect((calls[0].init.headers as Record<string, string>).Authorization).toBe("Bearer re_test");
+    const body = JSON.parse(String(calls[0].init.body));
+    expect(body).toMatchObject({ from: "OmniHack <no-reply@test.example>", to: ["resend-user@test.example"] });
+    expect(body.subject).toMatch(/Resend check/);
+    expect(body.text).toContain("http://localhost:3000/dashboard");
+    const row = await db.emailOutbox.findUniqueOrThrow({ where: { dedupeKey: "resend-1" } });
+    expect(row).toMatchObject({ status: "SENT", provider: "resend" });
+  });
+
+  it("keeps the API error when Resend rejects a message", async () => {
+    const fakeFetch = (async () => new Response('{"message":"domain not verified"}', { status: 403 })) as unknown as typeof fetch;
+    setEmailProviderForTesting(new ResendEmailProvider("re_test", fakeFetch));
+    await queueEmail({ to: "x@test.example", subject: "Rejected", body: "b", dedupeKey: "resend-2" });
+    expect(await drainOutbox()).toEqual({ sent: 0, failed: 1 });
+    const row = await db.emailOutbox.findUniqueOrThrow({ where: { dedupeKey: "resend-2" } });
+    expect(row.lastError).toMatch(/Resend API 403: .*domain not verified/);
   });
 });
 

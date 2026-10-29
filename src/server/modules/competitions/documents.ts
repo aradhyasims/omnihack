@@ -29,7 +29,10 @@ export async function setEventDocument(actor: Actor | null, competitionId: strin
   const previous = c[keyField];
 
   if (!file || file.size === 0) {
-    await db.competition.update({ where: { id: competitionId }, data: { [keyField]: null, [nameField]: null, ...(kind === "report" ? { reportUploadedAt: null } : {}) } });
+    await db.competition.update({
+      where: { id: competitionId },
+      data: { [keyField]: null, [nameField]: null, ...(kind === "report" ? { reportUploadedAt: null } : {}) },
+    });
   } else {
     if (kind === "report" && !eventHasEnded(c)) throw precondition("The final report can be uploaded once the event has ended.");
     const { maxBytes, label } = LIMITS[kind];
@@ -47,7 +50,10 @@ export async function setEventDocument(actor: Actor | null, competitionId: strin
       data: { [keyField]: key, [nameField]: sanitizeFileName(file.name), ...(kind === "report" ? { reportUploadedAt: new Date() } : {}) },
     });
   }
-  if (previous) await storage().delete(previous).catch(() => {});
+  if (previous)
+    await storage()
+      .delete(previous)
+      .catch(() => {});
   await audit({
     actorId: actor!.id,
     action: `competition.${kind}_${file && file.size > 0 ? "uploaded" : "removed"}`,

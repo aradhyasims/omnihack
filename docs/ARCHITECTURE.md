@@ -11,7 +11,7 @@ Browser ──► Next.js (App Router)
               └─ /api/v1 route handlers    ─┘          │
                                                        ├─► storage driver (local disk │ S3)
 Worker process ─► jobs/queue (Postgres SKIP LOCKED) ───┤
-                 email outbox → provider (console │ SMTP)
+                 email outbox → provider (console │ Resend │ SMTP)
                  deadline reminders, session purge
 file.scan jobs → ClamAV (clamd) when MALWARE_SCANNER=clamav; daily retention purge
 ```

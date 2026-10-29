@@ -6,8 +6,7 @@ import { TESTIMONIAL_LABEL } from "@/components/site/testimonial-card";
 import { formatDate } from "@/lib/time";
 import { removeEventDocumentAction, submitEventTestimonialAction, uploadEventDocumentAction } from "../../actions";
 
-const fileInput =
-  "block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-brand-50 file:px-3 file:py-1.5 file:font-semibold file:text-brand-700";
+const fileInput = "block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-brand-50 file:px-3 file:py-1.5 file:font-semibold file:text-brand-700";
 
 function DocumentSlot({
   id,
@@ -52,7 +51,13 @@ function DocumentSlot({
         <p className="mt-3 text-sm text-ink-500">{locked}</p>
       ) : (
         <ActionForm action={uploadEventDocumentAction.bind(null, id, kind)} resetOnSuccess className="mt-3 space-y-2">
-          <input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" className={fileInput} aria-label={`${title} file`} />
+          <input
+            type="file"
+            name="file"
+            accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+            className={fileInput}
+            aria-label={`${title} file`}
+          />
           <FieldErrorText name="file" />
           <FieldErrorText name={kind} />
           <SubmitButton size="sm" variant="outline" pendingLabel="Uploading…">
@@ -92,7 +97,8 @@ export function EventDocumentsCard({ c, ended, testimonials }: { c: Competition;
         <div className="border-t border-ink-100 pt-5">
           <p className="font-semibold">Testimonials from this event</p>
           <p className="mt-1 text-xs text-ink-500">
-            Share feedback you received from participants, institutions or companies — with their permission. OmniHack reviews each one before it&apos;s published.
+            Share feedback you received from participants, institutions or companies — with their permission. OmniHack reviews each one before it&apos;s
+            published.
           </p>
           {testimonials.length ? (
             <ul className="mt-3 space-y-2">

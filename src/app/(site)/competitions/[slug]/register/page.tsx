@@ -57,8 +57,8 @@ export default async function RegisterPage({ params }: { params: Promise<{ slug:
           </p>
           {c.isPaid && c.feeAmountMinor > 0 ? (
             <Alert tone="info" title={`Entry fee: ${formatFee(c.isPaid, c.feeAmountMinor, c.currency)}`}>
-              After you register, your workspace shows the organizer&apos;s bank account. Pay by bank transfer and submit the transaction reference; your place is
-              confirmed once the organizer verifies the payment.
+              After you register, your workspace shows the organizer&apos;s bank account. Pay by bank transfer and submit the transaction reference; your place
+              is confirmed once the organizer verifies the payment.
             </Alert>
           ) : null}
           <div className="grid gap-5 sm:grid-cols-2">

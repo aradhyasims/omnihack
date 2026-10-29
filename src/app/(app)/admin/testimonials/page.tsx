@@ -18,7 +18,15 @@ function TestimonialFields({ t, competitions }: { t?: Testimonial; competitions:
       <TextInput label="Organization" name="organization" required defaultValue={t?.organization} placeholder="e.g. Visvesvaraya Technological University" />
       <TextInput label="Name" name="authorName" required defaultValue={t?.authorName} />
       <TextInput label="Designation (optional)" name="authorTitle" defaultValue={t?.authorTitle ?? ""} placeholder="e.g. Registrar" />
-      <TextArea label="Testimonial" name="quote" required rows={4} defaultValue={t?.quote} className="sm:col-span-2" hint="20–1200 characters. Use their actual words, with their permission." />
+      <TextArea
+        label="Testimonial"
+        name="quote"
+        required
+        rows={4}
+        defaultValue={t?.quote}
+        className="sm:col-span-2"
+        hint="20–1200 characters. Use their actual words, with their permission."
+      />
       <Select
         label="Event (optional)"
         name="competitionId"
@@ -98,7 +106,11 @@ export default async function AdminTestimonialsPage() {
             </Card>
           ))
         ) : (
-          <EmptyState title="No testimonials yet" description="Add one on the right. Organizers' submissions also appear here for review." icon={<Icon name="users" />} />
+          <EmptyState
+            title="No testimonials yet"
+            description="Add one on the right. Organizers' submissions also appear here for review."
+            icon={<Icon name="users" />}
+          />
         )}
       </div>
       <Card className="lg:sticky lg:top-6">

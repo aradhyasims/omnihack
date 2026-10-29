@@ -164,7 +164,10 @@ const linkedinUrl = z
   .min(1, "LinkedIn profile URL is required.")
   .max(300, "LinkedIn profile URL is too long.")
   .transform((v) => (/^https?:\/\//i.test(v) ? v : `https://${v}`))
-  .refine((v) => /^https?:\/\/([a-z]{2,3}\.)?linkedin\.com\/(in|pub)\/[^/?#\s]+\/?([?#].*)?$/i.test(v), "Enter your LinkedIn profile URL, e.g. https://www.linkedin.com/in/your-name")
+  .refine(
+    (v) => /^https?:\/\/([a-z]{2,3}\.)?linkedin\.com\/(in|pub)\/[^/?#\s]+\/?([?#].*)?$/i.test(v),
+    "Enter your LinkedIn profile URL, e.g. https://www.linkedin.com/in/your-name",
+  )
   .transform((v) => {
     const u = new URL(v.replace(/^http:/i, "https:"));
     return `https://www.linkedin.com${u.pathname.replace(/\/$/, "")}`;
@@ -191,7 +194,12 @@ const mentorApplicationSchema = z.object({
   domains: z
     .preprocess(
       (v) => (v === undefined || v === "" ? [] : Array.isArray(v) ? v : [v]),
-      z.array(z.string().max(60).regex(/^[a-z0-9-]+$/, "Choose from the listed domains.")),
+      z.array(
+        z
+          .string()
+          .max(60)
+          .regex(/^[a-z0-9-]+$/, "Choose from the listed domains."),
+      ),
     )
     .transform((v) => [...new Set(v)])
     .refine((v) => v.length >= 1, "Choose at least one domain.")
@@ -223,7 +231,11 @@ async function resolveMentorDomains(selected: string[], otherDomain: string | nu
   let value = match?.value;
   if (!value) {
     // Non-Latin labels slugify to nothing; give them a stable random slug instead.
-    value = slug || `domain-${randomToken(6).toLowerCase().replace(/[^a-z0-9]/g, "x")}`;
+    value =
+      slug ||
+      `domain-${randomToken(6)
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "x")}`;
     await db.mentorDomain.upsert({ where: { value }, create: { value, label: label[0]!.toUpperCase() + label.slice(1) }, update: {} });
   }
   return [...new Set([...out, value])];
@@ -277,7 +289,10 @@ export async function submitMentorApplication(input: unknown, photo: File | null
   try {
     await db.mentorApplication.create({ data: { ...data, photoKey } });
   } catch (e) {
-    if (photoKey) await storage().delete(photoKey).catch(() => {});
+    if (photoKey)
+      await storage()
+        .delete(photoKey)
+        .catch(() => {});
     throw e;
   }
   const admins = await db.user.findMany({ where: { platformRole: { in: ["ADMIN", "SUPER_ADMIN"] }, status: "ACTIVE" }, select: { id: true } });
