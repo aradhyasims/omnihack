@@ -2,14 +2,14 @@
 
 `omnihack.yaml` provisions the whole application in one stack (`omnihack`, us-east-1):
 
-| Piece         | Resource                                                                                           |
-| ------------- | -------------------------------------------------------------------------------------------------- |
-| Public URL    | `https://www.omnihack.tech` → internet-facing ALB (ACM certificate, TLS 1.3 policy; HTTP redirects) |
-| App           | ECS Fargate service `web` (0.5 vCPU / 1 GB), one task; the worker runs in-process                  |
-| Database      | RDS PostgreSQL 17, db.t4g.micro, single-AZ, encrypted, 7-day PITR, deletion protection, isolated subnets |
-| Files         | Private, versioned S3 bucket (`STORAGE_DRIVER=s3`, task-role credentials)                          |
-| Image build   | ECR repository + CodeBuild project (no local Docker needed)                                        |
-| Secrets       | Secrets Manager generates the DB password, `APP_SECRET` and `ENCRYPTION_KEY`; holds `RESEND_API_KEY` |
+| Piece       | Resource                                                                                                 |
+| ----------- | -------------------------------------------------------------------------------------------------------- |
+| Public URL  | `https://www.omnihack.tech` → internet-facing ALB (ACM certificate, TLS 1.3 policy; HTTP redirects)      |
+| App         | ECS Fargate service `web` (0.5 vCPU / 1 GB), one task; the worker runs in-process                        |
+| Database    | RDS PostgreSQL 17, db.t4g.micro, single-AZ, encrypted, 7-day PITR, deletion protection, isolated subnets |
+| Files       | Private, versioned S3 bucket (`STORAGE_DRIVER=s3`, task-role credentials)                                |
+| Image build | ECR repository + CodeBuild project (no local Docker needed)                                              |
+| Secrets     | Secrets Manager generates the DB password, `APP_SECRET` and `ENCRYPTION_KEY`; holds `RESEND_API_KEY`     |
 
 Migrations run on container start (`MIGRATE_ON_START=true`). `scripts/start.sh` assembles `DATABASE_URL`
 from `DB_*` variables so the password is injected from Secrets Manager, not written in the task definition.
