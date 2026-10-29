@@ -12,7 +12,7 @@ const schema = z.object({
     .string()
     .default("false")
     .transform((v) => v === "true"),
-  EMAIL_PROVIDER: z.enum(["console", "smtp", "ses"]).default("console"),
+  EMAIL_PROVIDER: z.enum(["console", "smtp", "resend"]).default("console"),
   EMAIL_FROM: z.string().default("OmniHack <no-reply@omnihack.tech>"),
   STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),
   STORAGE_LOCAL_DIR: z.string().default("./storage"),

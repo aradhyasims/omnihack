@@ -1,5 +1,5 @@
 # Render Blueprint for OmniHack (web service; database and file storage on Supabase).
-# Secrets (DATABASE_URL, APP_SECRET, ENCRYPTION_KEY, AWS_* for Supabase Storage, SMTP_*) are set
+# Secrets (DATABASE_URL, APP_SECRET, ENCRYPTION_KEY, AWS_* for Supabase Storage, RESEND_API_KEY) are set
 # in the Render dashboard, never in this file. See docs/DEPLOYMENT.md → "Render + Supabase".
 services:
   - type: web
@@ -30,6 +30,10 @@ services:
       - key: REQUIRE_ADMIN_MFA
         value: "true"
       - key: EMAIL_PROVIDER
-        value: console
+        value: resend
+      - key: EMAIL_FROM
+        value: "OmniHack <no-reply@omnihack.tech>"
+      - key: RESEND_API_KEY
+        sync: false
       - key: STORAGE_DRIVER
         value: local

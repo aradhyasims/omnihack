@@ -12,12 +12,24 @@ export default async function SystemPage() {
   const integrations = [
     [
       "Email provider",
-      process.env.EMAIL_PROVIDER === "smtp"
-        ? process.env.SMTP_HOST
-          ? `SMTP via ${process.env.SMTP_HOST}:${process.env.SMTP_PORT ?? 587}`
-          : "SMTP selected but SMTP_HOST is missing — emails will fail"
-        : "Console (development) — emails are logged, not delivered",
-      process.env.EMAIL_PROVIDER === "smtp" ? (process.env.SMTP_HOST ? "success" : "danger") : "warning",
+      process.env.EMAIL_PROVIDER === "resend"
+        ? process.env.RESEND_API_KEY
+          ? `Resend API from ${process.env.EMAIL_FROM ?? "no-reply@omnihack.tech"}`
+          : "Resend selected but RESEND_API_KEY is missing — emails will fail"
+        : process.env.EMAIL_PROVIDER === "smtp"
+          ? process.env.SMTP_HOST
+            ? `SMTP via ${process.env.SMTP_HOST}:${process.env.SMTP_PORT ?? 587}`
+            : "SMTP selected but SMTP_HOST is missing — emails will fail"
+          : "Console (development) — emails are logged, not delivered",
+      process.env.EMAIL_PROVIDER === "resend"
+        ? process.env.RESEND_API_KEY
+          ? "success"
+          : "danger"
+        : process.env.EMAIL_PROVIDER === "smtp"
+          ? process.env.SMTP_HOST
+            ? "success"
+            : "danger"
+          : "warning",
     ],
     [
       "File storage",

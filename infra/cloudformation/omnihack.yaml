@@ -39,7 +39,12 @@ Parameters:
   EmailFromAddress:
     Type: String
     Default: no-reply@omnihack.tech
-    Description: Sender address; its domain must be a verified SES identity in this region.
+    Description: Sender address; its domain must be verified in Resend.
+  ResendApiKey:
+    Type: String
+    NoEcho: true
+    MinLength: 1
+    Description: Resend "sending access" API key (re_...). Stored in Secrets Manager; kept on later deploys.
   CertificateArn:
     Type: String
     AllowedPattern: "arn:aws:acm:.*"
@@ -227,6 +232,12 @@ Resources:
       GenerateSecretString:
         PasswordLength: 43
         ExcludePunctuation: true
+
+  ResendApiKeySecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: OmniHack RESEND_API_KEY (Resend sending-access key)
+      SecretString: !Ref ResendApiKey
 
   # ── Database ─────────────────────────────────────────────────────────────────
   DbSubnetGroup:
@@ -516,7 +527,7 @@ Resources:
             Statement:
               - Effect: Allow
                 Action: secretsmanager:GetSecretValue
-                Resource: [!Ref DbSecret, !Ref AppSecret, !Ref EncryptionKeySecret]
+                Resource: [!Ref DbSecret, !Ref AppSecret, !Ref EncryptionKeySecret, !Ref ResendApiKeySecret]
 
   TaskRole:
     Type: AWS::IAM::Role
@@ -537,19 +548,6 @@ Resources:
               - Effect: Allow
                 Action: [s3:GetObject, s3:PutObject, s3:DeleteObject]
                 Resource: !Sub "${FilesBucket.Arn}/*"
-        - PolicyName: email
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              # identity/* covers the sender domain plus, while SES is in the sandbox, the verified
-              # recipient identities; configuration-set/* covers the identity's default configuration set.
-              - Effect: Allow
-                Action: ses:SendEmail
-                Resource:
-                  - !Sub "arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/*"
-                  - !Sub "arn:aws:ses:${AWS::Region}:${AWS::AccountId}:configuration-set/*"
-                Condition:
-                  StringEquals: { ses:FromAddress: !Ref EmailFromAddress }
 
   WebTaskDefinition:
     Type: AWS::ECS::TaskDefinition
@@ -578,9 +576,8 @@ Resources:
             - { Name: MIGRATE_ON_START, Value: "true" }
             - { Name: RUN_WORKER_IN_PROCESS, Value: "true" }
             - { Name: REQUIRE_ADMIN_MFA, Value: "true" }
-            - { Name: EMAIL_PROVIDER, Value: ses }
+            - { Name: EMAIL_PROVIDER, Value: resend }
             - { Name: EMAIL_FROM, Value: !Sub "OmniHack <${EmailFromAddress}>" }
-            - { Name: SES_REGION, Value: !Ref AWS::Region }
             - { Name: STORAGE_DRIVER, Value: s3 }
             - { Name: S3_BUCKET, Value: !Ref FilesBucket }
             - { Name: S3_REGION, Value: !Ref AWS::Region }
@@ -593,6 +590,7 @@ Resources:
             - { Name: DB_PASSWORD, ValueFrom: !Sub "${DbSecret}:password::" }
             - { Name: APP_SECRET, ValueFrom: !Ref AppSecret }
             - { Name: ENCRYPTION_KEY, ValueFrom: !Ref EncryptionKeySecret }
+            - { Name: RESEND_API_KEY, ValueFrom: !Ref ResendApiKeySecret }
           LogConfiguration:
             LogDriver: awslogs
             Options:

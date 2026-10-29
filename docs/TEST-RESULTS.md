@@ -63,7 +63,7 @@ Before the homepage cache: 45 req/s, p50 531 ms. Interpretation: one instance se
 
 - **Docker / docker-compose**: Docker is not installed on this machine.
 - **GitHub Actions**: no remote repository is connected.
-- **AWS**: no account; Terraform is validated but not planned or applied. S3 and SES have not been tested against real AWS services.
+- **AWS**: no account; Terraform is validated but not planned or applied. S3 has not been tested against real AWS services.
 - **Professional penetration test**: required before launch.
 
 ## Bugs found and fixed during verification

@@ -22,3 +22,12 @@ next-env.d.ts
 *.tfstate.*
 *.tfvars
 !*.tfvars.example
+
+# Secrets that must never be committed
+*.pem
+*.key
+*.p12
+*.pfx
+.aws/
+*-params.json
+params*.json

@@ -9,7 +9,7 @@
 | Database      | RDS PostgreSQL 17, db.t4g.micro, single-AZ, encrypted, 7-day PITR, deletion protection, isolated subnets |
 | Files         | Private, versioned S3 bucket (`STORAGE_DRIVER=s3`, task-role credentials)                          |
 | Image build   | ECR repository + CodeBuild project (no local Docker needed)                                        |
-| Secrets       | Secrets Manager generates the DB password, `APP_SECRET` and `ENCRYPTION_KEY`                       |
+| Secrets       | Secrets Manager generates the DB password, `APP_SECRET` and `ENCRYPTION_KEY`; holds `RESEND_API_KEY` |
 
 Migrations run on container start (`MIGRATE_ON_START=true`). `scripts/start.sh` assembles `DATABASE_URL`
 from `DB_*` variables so the password is injected from Secrets Manager, not written in the task definition.
@@ -87,10 +87,11 @@ not use them.
 ## Operations
 
 - Logs: CloudWatch `/ecs/omnihack` (app) and `/codebuild/omnihack` (builds).
-- Email uses `EMAIL_PROVIDER=ses` from `no-reply@omnihack.tech` (parameter `EmailFromAddress`) through the
-  task role; the `omnihack.tech` SES identity (DKIM) must stay verified. While the SES account is in the
-  sandbox, only verified recipients receive mail; request production access in the SES console. Delivery
-  status and errors are visible under **Admin → System** (email outbox).
+- Email uses `EMAIL_PROVIDER=resend` from `no-reply@omnihack.tech` (parameter `EmailFromAddress`); the
+  `omnihack.tech` domain must stay verified in Resend (DKIM/SPF records in DNS). The Resend "sending access"
+  key is the `ResendApiKey` stack parameter (NoEcho), stored as the `ResendApiKeySecret` secret; pass
+  `ResendApiKey=re_...` once and later `deploy` runs keep it. To rotate it, deploy with a new value. Delivery status and errors are visible under **Admin → System**
+  (email outbox).
 - Promote a user to super admin (one-off task; the DB is not reachable from outside the VPC):
 
   ```powershell
@@ -109,4 +110,4 @@ not use them.
 
 CloudFront with WAF in front of the ALB (once the account is verified for CloudFront), Multi-AZ RDS,
 private subnets with NAT, a separate worker service (`RUN_WORKER_IN_PROCESS=false`) before running more
-than one web task, SMTP email, and ClamAV scanning. `infra/terraform` describes that target design.
+than one web task, and ClamAV scanning. `infra/terraform` describes that target design.
