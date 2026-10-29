@@ -11,7 +11,12 @@ import { days, file, makeUser, PDF_BYTES, resetDb } from "../helpers";
 let master: Actor, admin: Actor, owner: Actor, stranger: Actor;
 let cid = "";
 const PNG = Buffer.from("89504e470d0a1a0a0000000d4948445200000001000000010806000000", "hex");
-const quote = { category: "INSTITUTION", quote: "Our students built real products in two days — the judging was fair and transparent.", authorName: "Dr. A. Rao", organization: "Test University" };
+const quote = {
+  category: "INSTITUTION",
+  quote: "Our students built real products in two days — the judging was fair and transparent.",
+  authorName: "Dr. A. Rao",
+  organization: "Test University",
+};
 
 beforeAll(async () => {
   await resetDb();
@@ -64,7 +69,9 @@ describe("Homepage impact numbers", () => {
     await db.organization.create({ data: { name: "Impact Co", slug: "impact-co", type: "COMPANY" } });
     await db.organization.create({ data: { name: "Demo Co", slug: "demo-co", type: "COMPANY", isDemo: true } });
     const mk = (title: string, type: "IDEATHON" | "HACKATHON" | "HYBRID", publishedAt: Date | null, isDemo = false) =>
-      db.competition.create({ data: { organizationId: org.id, createdById: owner.id, slug: title, title, type, publishedAt, isDemo, eligibilityTypes: ["OPEN"] } });
+      db.competition.create({
+        data: { organizationId: org.id, createdById: owner.id, slug: title, title, type, publishedAt, isDemo, eligibilityTypes: ["OPEN"] },
+      });
     const hybrid = await mk("impact-hybrid", "HYBRID", new Date());
     await mk("impact-ideathon", "IDEATHON", new Date());
     await mk("impact-draft", "HACKATHON", null);
@@ -72,13 +79,37 @@ describe("Homepage impact numbers", () => {
     for (const [i, type] of (["STUDENT", "STUDENT", "PROFESSIONAL"] as const).entries()) {
       const u = await makeUser(`impact-${i}@test.example`);
       await db.registration.create({
-        data: { competitionId: hybrid.id, userId: u.id, participantType: type, rulesAcceptedAt: new Date(), checkInCode: `IMP-${i}`, status: i === 1 ? "WITHDRAWN" : "APPROVED" },
+        data: {
+          competitionId: hybrid.id,
+          userId: u.id,
+          participantType: type,
+          rulesAcceptedAt: new Date(),
+          checkInCode: `IMP-${i}`,
+          status: i === 1 ? "WITHDRAWN" : "APPROVED",
+        },
       });
     }
     await db.mentorApplication.createMany({
       data: [
-        { name: "M1", email: "m1@test.example", designation: "Eng", qualification: "BE", city: "X", country: "IN", linkedinUrl: "https://www.linkedin.com/in/m1" },
-        { name: "M2", email: "m2@test.example", designation: "Eng", qualification: "BE", city: "X", country: "IN", linkedinUrl: "https://www.linkedin.com/in/m2", status: "DECLINED" },
+        {
+          name: "M1",
+          email: "m1@test.example",
+          designation: "Eng",
+          qualification: "BE",
+          city: "X",
+          country: "IN",
+          linkedinUrl: "https://www.linkedin.com/in/m1",
+        },
+        {
+          name: "M2",
+          email: "m2@test.example",
+          designation: "Eng",
+          qualification: "BE",
+          city: "X",
+          country: "IN",
+          linkedinUrl: "https://www.linkedin.com/in/m2",
+          status: "DECLINED",
+        },
       ],
     });
     const after = await impactStats();
@@ -107,7 +138,14 @@ describe("Testimonials — only the master admin manages them", () => {
     expect(draft).toMatchObject({ published: false, featured: false, createdById: master.id });
     expect((await testimonials.homepageTestimonials()).map((t) => t.id)).toEqual([live.id]);
 
-    await testimonials.updateTestimonial(master, draft.id, { ...quote, category: "RECRUITMENT", organization: "Acme Corp", published: "on", featured: "on", sortOrder: "1" });
+    await testimonials.updateTestimonial(master, draft.id, {
+      ...quote,
+      category: "RECRUITMENT",
+      organization: "Acme Corp",
+      published: "on",
+      featured: "on",
+      sortOrder: "1",
+    });
     expect((await testimonials.homepageTestimonials()).map((t) => t.id)).toEqual([draft.id, live.id]);
     await expect(testimonials.updateTestimonial(admin, draft.id, quote)).rejects.toMatchObject({ code: "FORBIDDEN" });
 

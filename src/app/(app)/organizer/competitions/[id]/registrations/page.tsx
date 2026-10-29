@@ -104,7 +104,8 @@ export default async function RegistrationsPage({
                               <div className="space-y-2">
                                 <Badge tone="info">Verify payment</Badge>
                                 <p>
-                                  {formatInr(p.amountMinor, p.currency)} · UTR <span className="select-all font-mono font-semibold text-ink-900">{p.providerRef}</span>
+                                  {formatInr(p.amountMinor, p.currency)} · UTR{" "}
+                                  <span className="select-all font-mono font-semibold text-ink-900">{p.providerRef}</span>
                                   <span className="block">
                                     {formatDate(p.paidOn, "UTC")} · from {p.payerName}
                                   </span>

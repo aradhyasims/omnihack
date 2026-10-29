@@ -56,7 +56,12 @@ export default async function MentorApplicationsPage() {
             <div>
               <dt className="text-xs font-semibold uppercase text-ink-500">LinkedIn</dt>
               <dd>
-                <a href={m.linkedinUrl} target="_blank" rel="noopener noreferrer nofollow" className="inline-flex items-center gap-1 text-brand-600 hover:underline">
+                <a
+                  href={m.linkedinUrl}
+                  target="_blank"
+                  rel="noopener noreferrer nofollow"
+                  className="inline-flex items-center gap-1 text-brand-600 hover:underline"
+                >
                   View profile <Icon name="external" className="h-3.5 w-3.5" />
                 </a>
               </dd>

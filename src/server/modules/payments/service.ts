@@ -72,11 +72,26 @@ export async function submitHostingFee(actor: Actor | null, competitionId: strin
   try {
     await db.$transaction(async (tx) => {
       const p = await tx.hostingFeePayment.create({
-        data: { competitionId, amountMinor: c.hostingFeeAmountMinor, utr: d.utr, paidOn: d.paidOn, payerName: d.payerName, note: d.note, submittedById: actor!.id },
+        data: {
+          competitionId,
+          amountMinor: c.hostingFeeAmountMinor,
+          utr: d.utr,
+          paidOn: d.paidOn,
+          payerName: d.payerName,
+          note: d.note,
+          submittedById: actor!.id,
+        },
       });
       await tx.competition.update({ where: { id: competitionId }, data: { hostingFeeStatus: "SUBMITTED" } });
       await audit(
-        { actorId: actor!.id, action: "hosting_fee.submitted", entityType: "HostingFeePayment", entityId: p.id, competitionId, meta: { utr: d.utr, amountMinor: p.amountMinor } },
+        {
+          actorId: actor!.id,
+          action: "hosting_fee.submitted",
+          entityType: "HostingFeePayment",
+          entityId: p.id,
+          competitionId,
+          meta: { utr: d.utr, amountMinor: p.amountMinor },
+        },
         tx,
       );
     });
@@ -144,7 +159,10 @@ export async function waiveHostingFee(actor: Actor | null, competitionId: string
       data: { status: "REJECTED", reviewedById: admin.id, reviewedAt: new Date(), reviewNote: "Fee waived" },
     });
     await tx.competition.update({ where: { id: competitionId }, data: { hostingFeeStatus: "WAIVED" } });
-    await audit({ actorId: admin.id, action: "hosting_fee.waived", entityType: "Competition", entityId: competitionId, competitionId, meta: { reason: reason.trim() } }, tx);
+    await audit(
+      { actorId: admin.id, action: "hosting_fee.waived", entityType: "Competition", entityId: competitionId, competitionId, meta: { reason: reason.trim() } },
+      tx,
+    );
   });
   await notify({
     userIds: await competitionOwnerIds(competitionId),

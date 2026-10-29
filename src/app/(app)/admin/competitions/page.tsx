@@ -69,8 +69,8 @@ export default async function AdminCompetitionsPage() {
                       description={
                         <>
                           This removes the competition and <strong>everything in it</strong> — {c._count.registrations} registration(s), {c._count.teams}{" "}
-                          team(s), projects, submissions and uploaded files, scores, results, certificates and hiring data. It cannot be undone.
-                          Participants are not notified; to keep a record and tell them, cancel or archive it instead.
+                          team(s), projects, submissions and uploaded files, scores, results, certificates and hiring data. It cannot be undone. Participants
+                          are not notified; to keep a record and tell them, cancel or archive it instead.
                         </>
                       }
                       reasonLabel={`Type “${c.title}” to confirm`}

@@ -96,7 +96,9 @@ describe("Hosting fee — ₹10,000 to OmniHack before the competition is enable
     const c = await db.competition.findUniqueOrThrow({ where: { id: cid } });
     expect(c.hostingFeeStatus).toBe("VERIFIED");
     expect(await db.notification.count({ where: { userId: owner.id, type: "hosting_fee.verified" } })).toBe(1);
-    expect(await db.auditLog.count({ where: { competitionId: cid, action: { in: ["hosting_fee.submitted", "hosting_fee.rejected", "hosting_fee.verified"] } } })).toBe(4);
+    expect(
+      await db.auditLog.count({ where: { competitionId: cid, action: { in: ["hosting_fee.submitted", "hosting_fee.rejected", "hosting_fee.verified"] } } }),
+    ).toBe(4);
     expect(await comp.getPublishIssues(cid)).toEqual([]);
     await expect(payments.submitHostingFee(owner, cid, transfer("UTR000000001"))).rejects.toMatchObject({ code: "PRECONDITION" });
   });

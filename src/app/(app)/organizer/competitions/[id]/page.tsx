@@ -46,58 +46,58 @@ export default async function ManageOverview({ params }: { params: Promise<{ id:
       ) : null}
 
       <div id="hosting-fee" className="scroll-mt-24">
-      <Card>
-        <CardHeader
-          title="Hosting fee"
-          description={`${formatInr(c.hostingFeeAmountMinor)} per competition, paid to OmniHack. Publishing and access to judges & mentors unlock once it's verified.`}
-          action={<Badge tone={HOSTING_FEE_META[c.hostingFeeStatus].tone}>{HOSTING_FEE_META[c.hostingFeeStatus].label}</Badge>}
-        />
-        <div className="space-y-4 p-5">
-          {enabled ? (
-            <div className="flex flex-wrap items-center justify-between gap-3">
+        <Card>
+          <CardHeader
+            title="Hosting fee"
+            description={`${formatInr(c.hostingFeeAmountMinor)} per competition, paid to OmniHack. Publishing and access to judges & mentors unlock once it's verified.`}
+            action={<Badge tone={HOSTING_FEE_META[c.hostingFeeStatus].tone}>{HOSTING_FEE_META[c.hostingFeeStatus].label}</Badge>}
+          />
+          <div className="space-y-4 p-5">
+            {enabled ? (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm text-ink-700">
+                  {c.hostingFeeStatus === "WAIVED"
+                    ? "OmniHack waived the hosting fee for this competition."
+                    : `Payment received${feePayment?.utr ? ` (UTR ${feePayment.utr})` : ""} — this competition is enabled.`}
+                </p>
+                {can("staff.manage") ? (
+                  <ButtonLink href={`/organizer/competitions/${id}/mentors`} size="sm" variant="outline">
+                    Find mentors & judges
+                  </ButtonLink>
+                ) : null}
+              </div>
+            ) : c.hostingFeeStatus === "SUBMITTED" && feePayment ? (
               <p className="text-sm text-ink-700">
-                {c.hostingFeeStatus === "WAIVED"
-                  ? "OmniHack waived the hosting fee for this competition."
-                  : `Payment received${feePayment?.utr ? ` (UTR ${feePayment.utr})` : ""} — this competition is enabled.`}
+                We received your payment details — UTR <strong className="font-mono">{feePayment.utr}</strong>, paid on {formatDate(feePayment.paidOn, "UTC")}{" "}
+                by {feePayment.payerName}. OmniHack is verifying the transfer and will notify you when the competition is enabled.
               </p>
-              {can("staff.manage") ? (
-                <ButtonLink href={`/organizer/competitions/${id}/mentors`} size="sm" variant="outline">
-                  Find mentors & judges
-                </ButtonLink>
-              ) : null}
-            </div>
-          ) : c.hostingFeeStatus === "SUBMITTED" && feePayment ? (
-            <p className="text-sm text-ink-700">
-              We received your payment details — UTR <strong className="font-mono">{feePayment.utr}</strong>, paid on {formatDate(feePayment.paidOn, "UTC")} by{" "}
-              {feePayment.payerName}. OmniHack is verifying the transfer and will notify you when the competition is enabled.
-            </p>
-          ) : (
-            <>
-              {c.hostingFeeStatus === "REJECTED" && feePayment?.reviewNote ? (
-                <Alert tone="danger" title={`We couldn't verify UTR ${feePayment.utr}`}>
-                  {feePayment.reviewNote} Please check the details and submit again.
-                </Alert>
-              ) : null}
-              <BankDetails
-                amount={formatInr(c.hostingFeeAmountMinor)}
-                accountName={HOSTING_FEE.payee.accountName}
-                accountNumber={HOSTING_FEE.payee.accountNumber}
-                ifsc={HOSTING_FEE.payee.ifsc}
-                bank={HOSTING_FEE.payee.bank}
-                branch={HOSTING_FEE.payee.branch}
-              />
-              {can("competition.edit") ? (
-                <div>
-                  <p className="mb-3 text-sm font-semibold text-ink-800">After paying, tell us the transfer details:</p>
-                  <TransferForm action={submitHostingFeeAction.bind(null, id)} />
-                </div>
-              ) : (
-                <p className="text-sm text-ink-500">A competition owner or coordinator can submit the payment details.</p>
-              )}
-            </>
-          )}
-        </div>
-      </Card>
+            ) : (
+              <>
+                {c.hostingFeeStatus === "REJECTED" && feePayment?.reviewNote ? (
+                  <Alert tone="danger" title={`We couldn't verify UTR ${feePayment.utr}`}>
+                    {feePayment.reviewNote} Please check the details and submit again.
+                  </Alert>
+                ) : null}
+                <BankDetails
+                  amount={formatInr(c.hostingFeeAmountMinor)}
+                  accountName={HOSTING_FEE.payee.accountName}
+                  accountNumber={HOSTING_FEE.payee.accountNumber}
+                  ifsc={HOSTING_FEE.payee.ifsc}
+                  bank={HOSTING_FEE.payee.bank}
+                  branch={HOSTING_FEE.payee.branch}
+                />
+                {can("competition.edit") ? (
+                  <div>
+                    <p className="mb-3 text-sm font-semibold text-ink-800">After paying, tell us the transfer details:</p>
+                    <TransferForm action={submitHostingFeeAction.bind(null, id)} />
+                  </div>
+                ) : (
+                  <p className="text-sm text-ink-500">A competition owner or coordinator can submit the payment details.</p>
+                )}
+              </>
+            )}
+          </div>
+        </Card>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

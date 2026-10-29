@@ -36,7 +36,13 @@ export async function createTestimonial(actor: Actor | null, input: unknown) {
   const d = parse(adminSchema, input);
   await checkCompetition(d.competitionId);
   const t = await db.testimonial.create({ data: { ...d, createdById: admin.id } });
-  await audit({ actorId: admin.id, action: "testimonial.created", entityType: "Testimonial", entityId: t.id, meta: { published: d.published, featured: d.featured } });
+  await audit({
+    actorId: admin.id,
+    action: "testimonial.created",
+    entityType: "Testimonial",
+    entityId: t.id,
+    meta: { published: d.published, featured: d.featured },
+  });
   return t;
 }
 
@@ -46,7 +52,13 @@ export async function updateTestimonial(actor: Actor | null, id: string, input: 
   await checkCompetition(d.competitionId);
   if (!(await db.testimonial.findUnique({ where: { id } }))) throw notFound("Testimonial");
   await db.testimonial.update({ where: { id }, data: d });
-  await audit({ actorId: admin.id, action: "testimonial.updated", entityType: "Testimonial", entityId: id, meta: { published: d.published, featured: d.featured } });
+  await audit({
+    actorId: admin.id,
+    action: "testimonial.updated",
+    entityType: "Testimonial",
+    entityId: id,
+    meta: { published: d.published, featured: d.featured },
+  });
 }
 
 export async function deleteTestimonial(actor: Actor | null, id: string) {
@@ -54,7 +66,13 @@ export async function deleteTestimonial(actor: Actor | null, id: string) {
   const t = await db.testimonial.findUnique({ where: { id } });
   if (!t) throw notFound("Testimonial");
   await db.testimonial.delete({ where: { id } });
-  await audit({ actorId: admin.id, action: "testimonial.deleted", entityType: "Testimonial", entityId: id, meta: { authorName: t.authorName, organization: t.organization } });
+  await audit({
+    actorId: admin.id,
+    action: "testimonial.deleted",
+    entityType: "Testimonial",
+    entityId: id,
+    meta: { authorName: t.authorName, organization: t.organization },
+  });
 }
 
 export async function listAllTestimonials(actor: Actor | null) {

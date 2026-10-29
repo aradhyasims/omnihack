@@ -69,8 +69,7 @@ export default async function WorkspacePage({
   const challenges = c.challenges.map((ch) => ({ value: ch.id, label: ch.title }));
   const maxMb = Number(process.env.MAX_UPLOAD_MB ?? 25);
   const [openings, consent] = c.hiringEnabled ? await Promise.all([competitionOpenings(c.id), getConsent(user.id, c.id)]) : [[], null];
-  const paymentDue =
-    c.isPaid && (reg.paymentStatus === "PENDING" || reg.paymentStatus === "FAILED") && reg.status !== "WITHDRAWN" && reg.status !== "REJECTED";
+  const paymentDue = c.isPaid && (reg.paymentStatus === "PENDING" || reg.paymentStatus === "FAILED") && reg.status !== "WITHDRAWN" && reg.status !== "REJECTED";
   const lastPayment = paymentDue ? await db.payment.findFirst({ where: { registrationId: reg.id }, orderBy: { createdAt: "desc" } }) : null;
 
   return (
@@ -118,8 +117,8 @@ export default async function WorkspacePage({
           <div className="space-y-4 p-5">
             {lastPayment?.status === "PENDING" ? (
               <p className="text-sm text-ink-700">
-                Payment details sent — UTR <strong className="font-mono">{lastPayment.providerRef}</strong>, paid on {formatDate(lastPayment.paidOn, "UTC")}. The
-                organizer will verify it against their account and you&apos;ll be notified.
+                Payment details sent — UTR <strong className="font-mono">{lastPayment.providerRef}</strong>, paid on {formatDate(lastPayment.paidOn, "UTC")}.
+                The organizer will verify it against their account and you&apos;ll be notified.
               </p>
             ) : (
               <>

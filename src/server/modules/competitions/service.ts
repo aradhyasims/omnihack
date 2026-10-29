@@ -764,18 +764,20 @@ export async function deleteCompetitionPermanently(actor: Actor | null, competit
   const admin = requireSuperAdmin(actor);
   const c = await db.competition.findUnique({
     where: { id: competitionId },
-    include: { organization: { select: { id: true, name: true } }, _count: { select: { registrations: true, teams: true, projects: true, certificates: true } } },
+    include: {
+      organization: { select: { id: true, name: true } },
+      _count: { select: { registrations: true, teams: true, projects: true, certificates: true } },
+    },
   });
   if (!c) throw notFound("Competition");
-  if (confirmTitle.trim() !== c.title.trim())
-    throw validation("Type the competition name exactly to confirm.", { reason: `Type “${c.title}” to confirm.` });
+  if (confirmTitle.trim() !== c.title.trim()) throw validation("Type the competition name exactly to confirm.", { reason: `Type “${c.title}” to confirm.` });
 
   const [attachments, consents] = await Promise.all([
     db.attachment.findMany({ where: { submission: { project: { competitionId } } }, select: { storageKey: true } }),
     db.talentConsent.findMany({ where: { competitionId, resumeKey: { not: null } }, select: { resumeKey: true } }),
   ]);
-  const fileKeys = [c.bannerImageKey, c.logoImageKey, ...attachments.map((a) => a.storageKey), ...consents.map((t) => t.resumeKey)].filter(
-    (k): k is string => Boolean(k),
+  const fileKeys = [c.bannerImageKey, c.logoImageKey, ...attachments.map((a) => a.storageKey), ...consents.map((t) => t.resumeKey)].filter((k): k is string =>
+    Boolean(k),
   );
 
   await db.competition.delete({ where: { id: competitionId } }); // child rows cascade
