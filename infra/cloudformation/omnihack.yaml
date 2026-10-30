@@ -556,6 +556,7 @@ Resources:
         why: >-
           DATABASE_URL is assembled from DB_* variables in scripts/start.sh so the password is injected
           from Secrets Manager rather than written into the task definition.
+          Admin MFA is optional for now at the platform owner's request.
     Properties:
       Family: !Sub "${AWS::StackName}-web"
       RequiresCompatibilities: [FARGATE]
@@ -575,7 +576,7 @@ Resources:
             - { Name: APP_URL, Value: !Sub "https://${DomainName}" }
             - { Name: MIGRATE_ON_START, Value: "true" }
             - { Name: RUN_WORKER_IN_PROCESS, Value: "true" }
-            - { Name: REQUIRE_ADMIN_MFA, Value: "true" }
+            - { Name: REQUIRE_ADMIN_MFA, Value: "false" }
             - { Name: EMAIL_PROVIDER, Value: resend }
             - { Name: EMAIL_FROM, Value: !Sub "OmniHack <${EmailFromAddress}>" }
             - { Name: STORAGE_DRIVER, Value: s3 }
